@@ -320,31 +320,59 @@ async function checkAutoPlay(browser) {
   await p.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.5);
   await p.mouse.move(box.x + box.width * 0.32, box.y + box.height * 0.5);
   const afterMouse = await p.evaluate(() => ({ auto: __fd.Game.auto, idleMs: __fd.Game.idleMs, badgeHidden: document.getElementById("autoBadge").classList.contains("hidden"), dropX: Math.round(__fd.Game.dropX) }));
-  const backToAuto = await p.evaluate(() => {
+  // once the player has taken over, AUTO never comes back in this game (30 s without input)
+  const staysManual = await p.evaluate(() => {
+    const n0 = __fd.world.fruits.length + __fd.world.mergeCount * 2;
+    let sawAuto = false;
+    for (let i = 0; i < 30 * 60; i++) { __fd.stepFrames(60, 1 / 60); if (__fd.Game.auto) sawAuto = true; }
+    return { sawAuto: sawAuto, manual: __fd.Game.manual, idleSec: +(__fd.Game.idleMs / 1000).toFixed(1),
+      noAutoDrops: __fd.world.fruits.length + __fd.world.mergeCount * 2 === n0, badgeHidden: document.getElementById("autoBadge").classList.contains("hidden") };
+  });
+  // retry re-arms the 5 s rule; a key press hands back and the game then stays manual
+  const keyGame = await p.evaluate(() => {
+    __fd.reset();
+    __fd.Loop.stop();
     __fd.stepFrames(60, 4.9);
     const a = __fd.Game.auto;
     __fd.stepFrames(60, 0.2);
     return { at4_9s: a, at5_1s: __fd.Game.auto };
   });
   await p.keyboard.down("ArrowLeft");
-  const afterKey = await p.evaluate(() => ({ auto: __fd.Game.auto, idleMs: __fd.Game.idleMs }));
+  const afterKey = await p.evaluate(() => ({ auto: __fd.Game.auto, manual: __fd.Game.manual }));
   const keyMoves = await p.evaluate(() => { const x0 = __fd.Game.dropX; __fd.stepFrames(60, 0.3); return Math.round(x0 - __fd.Game.dropX); });
   await p.keyboard.up("ArrowLeft");
+  const afterKeyIdle = await p.evaluate(() => { let saw = false; for (let i = 0; i < 15 * 60; i++) { __fd.stepFrames(60, 1 / 60); if (__fd.Game.auto) saw = true; } return { sawAutoIn15s: saw }; });
+  // input within the first 5 s: AUTO never starts in that game
+  await p.evaluate(() => { __fd.reset(); __fd.Loop.stop(); __fd.stepFrames(60, 2); });
+  await p.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.4);
+  await p.mouse.move(box.x + box.width * 0.62, box.y + box.height * 0.4);
+  const afterEarly = await p.evaluate(() => { let saw = false; for (let i = 0; i < 20 * 60; i++) { __fd.stepFrames(60, 1 / 60); if (__fd.Game.auto) saw = true; } return { sawAutoIn20s: saw, manual: __fd.Game.manual }; });
   if (p.errors.length) results.pageErrors = (results.pageErrors || []).concat(p.errors);
   await p.closeAll();
-  // touch hand-back on a phone
+  // touch hand-back on a phone, then stays manual
   const q = await open(browser, { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
   const tq = await q.evaluate(() => { __fd.Game.autoEnabled = true; __fd.stepFrames(60, 5.2); return __fd.Game.auto; });
   const gbox = await q.locator("#game").boundingBox();
   await q.touchscreen.tap(gbox.x + gbox.width * 0.6, gbox.y + gbox.height * 0.3);
-  const afterTap = await q.evaluate(() => ({ auto: __fd.Game.auto, idleMs: __fd.Game.idleMs }));
+  const afterTap = await q.evaluate(() => {
+    const r = { auto: __fd.Game.auto, manual: __fd.Game.manual };
+    let saw = false;
+    for (let i = 0; i < 10 * 60; i++) { __fd.stepFrames(60, 1 / 60); if (__fd.Game.auto) saw = true; }
+    r.sawAutoIn10s = saw;
+    return r;
+  });
   if (q.errors.length) results.pageErrors = (results.pageErrors || []).concat(q.errors);
   await q.closeAll();
   record("R5_auto_play", !run.autoAt4_9s && run.autoAt5_1s && run.badgeShown && run.autoDropsIn60s >= 20 &&
     run.gapMinMs >= 1500 - 20 && run.gapMaxMs <= 2500 + 400 && run.xSpreadSd > 40 &&
-    !afterMouse.auto && afterMouse.idleMs === 0 && afterMouse.badgeHidden && !backToAuto.at4_9s && backToAuto.at5_1s &&
-    !afterKey.auto && afterKey.idleMs === 0 && keyMoves > 50 && tq === true && !afterTap.auto && afterTap.idleMs === 0,
-  { idleToAuto: run, mouseHandBack: afterMouse, autoAgainAfterIdle: backToAuto, keyHandBack: Object.assign(afterKey, { movedLeftU: keyMoves }), touchHandBack: { autoBeforeTap: tq, afterTap: afterTap } });
+    !afterMouse.auto && afterMouse.badgeHidden &&
+    !staysManual.sawAuto && staysManual.manual && staysManual.noAutoDrops && staysManual.badgeHidden &&
+    !keyGame.at4_9s && keyGame.at5_1s && !afterKey.auto && afterKey.manual && keyMoves > 50 && !afterKeyIdle.sawAutoIn15s &&
+    !afterEarly.sawAutoIn20s && afterEarly.manual &&
+    tq === true && !afterTap.auto && afterTap.manual && !afterTap.sawAutoIn10s,
+  { idleToAuto: run, mouseHandBack: afterMouse, staysManualFor30s: staysManual, retryRearms: keyGame,
+    keyHandBack: Object.assign(afterKey, { movedLeftU: keyMoves }, afterKeyIdle), inputWithinFirst5s: afterEarly,
+    touchHandBack: { autoBeforeTap: tq, afterTap: afterTap } });
 }
 
 (async () => {

@@ -453,7 +453,7 @@ const CONFIG = {
   GRACE_MS: 1000,         // a fruit is ignored by the deadline check for this long after it appears
   OVER_MS: 2000,          // continuous time above the deadline that ends the game
   KEY_SPEED: 360,         // u/s
-  AUTO_IDLE_MS: 5000,     // no input for this long -> AUTO PLAY
+  AUTO_IDLE_MS: 5000,     // no input for this long after start/retry -> AUTO PLAY (only until the first input)
   AUTO_DELAY_MIN: 1000,   // AUTO PLAY drops 1-2 s after the fruit is loaded
   AUTO_DELAY_MAX: 2000,
   MAX_PARTICLES: 400,
@@ -2236,7 +2236,8 @@ const Game = {
   paused: false,
   auto: false,          // AUTO PLAY mode
   autoEnabled: true,    // debug/test switch
-  idleMs: 0,            // time since the last user input (counts only while playing and not paused)
+  idleMs: 0,            // time since the game started (counts only while playing and not paused)
+  manual: false,        // the player has operated during this game: AUTO PLAY never starts again until the next start/retry
   init() {
     this.newWorld();
     this.current = randomDropStage();
@@ -2259,6 +2260,7 @@ const Game = {
     this.state = "playing";
     this.bestAtStart = this.best;
     this.waitingVisibleAt = rt;
+    this.manual = false;
     this.resetIdle();
     pauseBtn.disabled = false;
     BGM.start();                                // schedules from the current audio time
@@ -2286,6 +2288,7 @@ const Game = {
     this.bestAtStart = this.best;
     this.state = "playing";
     this.setPaused(false);
+    this.manual = false;
     this.resetIdle();
     pauseBtn.disabled = false;
     BGM.start();
@@ -2313,9 +2316,10 @@ const Game = {
       UI.updateAutoBadge();
     }
   },
-  // any real user input: leave AUTO immediately and restart the 5 s idle timer
+  // any real user input: leave AUTO immediately and stay manual for the rest of this game
   noteInput() {
     if (this.state !== "playing") return;
+    this.manual = true;
     this.resetIdle();
   },
   canDrop() { return this.state === "playing" && !this.paused && this.world.time >= this.cooldownUntil; },
@@ -2412,7 +2416,7 @@ const Game = {
   update(dt) {
     if (this.state === "playing") {
       this.idleMs += dt;
-      if (!this.auto && this.autoEnabled && this.idleMs >= CONFIG.AUTO_IDLE_MS) {
+      if (!this.auto && !this.manual && this.autoEnabled && this.idleMs >= CONFIG.AUTO_IDLE_MS) {
         this.auto = true;
         AutoPlay.reset();
         UI.updateAutoBadge();
@@ -2851,7 +2855,7 @@ const Debug = {
       "<label><input type='checkbox' id='dbgStats' checked> FPS・統計</label><br>" +
       "<label><input type='checkbox' id='dbgInterp' checked> 描画の補間</label><br>" +
       "<label><input type='checkbox' id='dbgNoOver'> ゲームオーバー無効</label><br>" +
-      "<label><input type='checkbox' id='dbgAuto' checked> オートプレイ有効（5秒無操作）</label>" +
+      "<label><input type='checkbox' id='dbgAuto' checked> オートプレイ有効（開始後5秒無操作）</label>" +
       "<h4>テスト</h4>" +
       "<button id='dbgMeasure'>計測テスト</button><button id='dbgStack'>積載テスト</button><button id='dbg30'>30個テスト</button>" +
       "<div id='dbgOut'></div><textarea id='dbgJson' readonly></textarea>" +
@@ -2986,7 +2990,7 @@ const Debug = {
       const lines = [
         "FPS " + this.fps.toFixed(1) + "  steps/s " + this.sps.toFixed(1),
         "fruits " + fruits.length + "  bodies " + Composite.allBodies(Game.world.engine.world).length + "  fx " + Effects.count(),
-        "auto " + (Game.auto ? "ON" : "off") + "  idle " + (Game.idleMs / 1000).toFixed(1) + "s  paused " + Game.paused + "  bgm " + BGM.playing,
+"auto " + (Game.auto ? "ON" : "off") + (Game.manual ? " (manual)" : "") + "  idle " + (Game.idleMs / 1000).toFixed(1) + "s  paused " + Game.paused + "  bgm " + BGM.playing,
         "rescue " + Game.world.rescueCount + "  wallfix " + Game.world.wallClampCount + "  over " + Math.round(Game.overTimer) + "ms  t " + (Game.world.time / 1000).toFixed(1) + "s  α " + alpha.toFixed(2)
       ];
       lines.forEach((l, i) => c.fillText(l, CONFIG.VIEW.x + 4, CONFIG.VIEW.y + 4 + i * 13));
@@ -3197,7 +3201,7 @@ function boot() {
       getState() {
         return {
           state: Game.state, score: Game.score, best: Game.best, time: Game.world.time,
-          paused: Game.paused, auto: Game.auto, idleMs: Game.idleMs, bgm: BGM.playing,
+          paused: Game.paused, auto: Game.auto, manual: Game.manual, idleMs: Game.idleMs, bgm: BGM.playing,
           overTimer: Game.overTimer, overState: Game.overState, rescue: Game.world.rescueCount, wallClamp: Game.world.wallClampCount,
           bodies: Composite.allBodies(Game.world.engine.world).length,
           effects: Effects.count(),
