@@ -1365,7 +1365,10 @@ const Sound = {
         this.ctx = ctx;
         this.master = master;
         this.noise = buf;
-        ctx.onstatechange = () => { if (ctx.state === "running") BGM.pump(); };
+        ctx.onstatechange = () => {
+          if (ctx.state === "running") BGM.ensure();
+          else if (ctx.state === "interrupted" && !document.hidden) this.resume();   // iOS: notification / call ended
+        };
       }
       const ctx = this.ctx;
       if (ctx.state !== "running") {
@@ -1417,6 +1420,7 @@ const Sound = {
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.a + o.d);
     osc.connect(g);
     g.connect(this.master);
+    osc.onended = () => { try { osc.disconnect(); g.disconnect(); } catch (e) { /* already gone */ } };
     if (o.vibrato) {
       const lfo = ctx.createOscillator();
       const lg = ctx.createGain();
@@ -1445,6 +1449,7 @@ const Sound = {
     src.connect(bp);
     bp.connect(g);
     g.connect(this.master);
+    src.onended = () => { try { src.disconnect(); bp.disconnect(); g.disconnect(); } catch (e) { /* already gone */ } };
     src.start(t0);
     src.stop(t0 + dur + 0.02);
   },
@@ -1480,13 +1485,19 @@ const Sound = {
 
 /* =========================================================================
  * BGM — looping toy-piano / marimba tune synthesized with Web Audio
- * 96 BPM, 8 bars of 4/4 on an eighth-note grid (64 steps, 20 s per loop)
+ * 96 BPM, 8 bars of 4/4 on an eighth-note grid (64 steps, 20 s per loop).
+ * The loop is rendered once into an AudioBuffer (OfflineAudioContext) and
+ * played by a single looping AudioBufferSourceNode, so playback needs no
+ * timers and creates no nodes per note (iOS Safari stopped the old
+ * note-by-note scheduler after a while).
  * ========================================================================= */
 const BGM = {
   BPM: 96,
   LEVEL: 1.0,            // bus gain; effective melody peak = 0.6 (master) x 1.0 x 0.13 = 0.078 (SFX peak 0.15)
   DUCK: 0.35,            // multiplier while paused
-  GAIN: { melody: 0.13, bass: 0.10, bass5: 0.08, comp: 0.06, shaker: 0.03 },   // per-note peak gains on the bus
+  GAIN: { melody: 0.13, bass: 0.10, bass5: 0.08, comp: 0.06, shaker: 0.03 },   // per-note peak gains
+  RENDER_RATE: 44100,
+  TAIL: 1.0,             // seconds rendered past the loop end; folded back onto the start for a seamless loop
   // melody, MIDI note numbers per eighth note (0 = rest)
   MELODY: [
     76, 0, 79, 0, 81, 79, 76, 0,     // C
@@ -1509,42 +1520,102 @@ const BGM = {
     { root: 41, tones: [57, 60] },   // F
     { root: 43, tones: [59, 62] }    // G
   ],
+  buffer: null,          // the whole loop, rendered once with an OfflineAudioContext
+  rendering: null,
   playing: false,
   ducked: false,
   bus: null,
-  timer: 0,
-  step: 0,
-  nextTime: 0,
+  source: null,          // one looping AudioBufferSourceNode: no timers, no per-note nodes at play time
+  startedAt: 0,
+  restarts: 0,
   freq(m) { return 440 * Math.pow(2, (m - 69) / 12); },
+  loopSeconds() { return this.MELODY.length * 60 / this.BPM / 2; },
+
+  // Render the 8-bar loop into a buffer. Needs no user gesture, so it runs at boot.
+  prepare() {
+    if (this.buffer) return Promise.resolve(this.buffer);
+    if (this.rendering) return this.rendering;
+    const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!OAC) return Promise.resolve(null);
+    const rate = this.RENDER_RATE;
+    const loopLen = Math.round(this.loopSeconds() * rate);
+    const tailLen = Math.round(this.TAIL * rate);
+    let octx;
+    try { octx = new OAC(1, loopLen + tailLen, rate); } catch (e) { return Promise.resolve(null); }
+    const noise = octx.createBuffer(1, Math.floor(rate * 0.5), rate);
+    const nd = noise.getChannelData(0);
+    const rng = mulberry32(4242);
+    for (let i = 0; i < nd.length; i++) nd[i] = rng() * 2 - 1;
+    const out = octx.destination;
+    const eighth = 60 / this.BPM / 2;
+    for (let i = 0; i < this.MELODY.length; i++) this.schedule(octx, out, noise, i, i * eighth, rng);
+    this.rendering = new Promise((resolve) => {
+      let done = false;
+      const finish = (buf) => {
+        if (done) return;
+        done = true;
+        if (buf) {
+          // fold the ringing tail (notes started near the loop end) back onto the beginning
+          const d = buf.getChannelData(0);
+          for (let i = 0; i < tailLen; i++) d[i] += d[loopLen + i];
+        }
+        this.buffer = buf || null;
+        resolve(this.buffer);
+      };
+      octx.oncomplete = (e) => finish(e.renderedBuffer);
+      try {
+        const p = octx.startRendering();
+        if (p && p.then) p.then(finish, () => finish(null));
+      } catch (e) { finish(null); }
+    });
+    return this.rendering;
+  },
+
   start() {
     if (!Sound.ready()) return;
     this.stop(true);
     const ctx = Sound.ctx;
     const t = ctx.currentTime;
     const bus = ctx.createGain();
-    // short fade-in: the first note sounds almost immediately after GAME START
+    // short fade-in: the music is audible almost immediately after GAME START
     bus.gain.setValueAtTime(0.0001, t);
     bus.gain.linearRampToValueAtTime(this.LEVEL * (this.ducked ? this.DUCK : 1), t + 0.12);
     bus.connect(Sound.master);
     this.bus = bus;
-    this.step = 0;
-    this.nextTime = t + 0.05;
     this.playing = true;
-    this.timer = setInterval(() => this.pump(), 25);
-    this.pump();
+    const go = (buf) => {
+      if (!buf || !this.playing || this.bus !== bus) return;
+      this.attachSource(buf, Math.max(ctx.currentTime, t) + 0.02);
+    };
+    if (this.buffer) go(this.buffer); else this.prepare().then(go);
+  },
+  attachSource(buf, when) {
+    const src = Sound.ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    src.loopStart = 0;
+    src.loopEnd = this.loopSeconds();
+    src.connect(this.bus);
+    src.onended = () => {
+      try { src.disconnect(); } catch (e) { /* already gone */ }
+      if (this.source === src) this.source = null;
+    };
+    src.start(when);
+    this.source = src;
+    this.startedAt = when;
   },
   stop(immediate) {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = 0;
     this.playing = false;
-    const bus = this.bus;
+    const bus = this.bus, src = this.source;
     this.bus = null;
+    this.source = null;
     if (!bus || !Sound.ready()) return;
     const t = Sound.ctx.currentTime;
     const fade = immediate ? 0.05 : 1.2;
     bus.gain.cancelScheduledValues(t);
     bus.gain.setValueAtTime(bus.gain.value, t);
     bus.gain.linearRampToValueAtTime(0.0001, t + fade);
+    if (src) { try { src.stop(t + fade + 0.05); } catch (e) { /* not started yet */ } }
     setTimeout(() => { try { bus.disconnect(); } catch (e) { /* already gone */ } }, fade * 1000 + 600);
   },
   setDuck(on) {
@@ -1555,72 +1626,66 @@ const BGM = {
     this.bus.gain.setValueAtTime(this.bus.gain.value, t);
     this.bus.gain.linearRampToValueAtTime(this.LEVEL * (on ? this.DUCK : 1), t + 0.25);
   },
-  // look-ahead scheduler: queue notes up to 0.2 s ahead of the audio clock
-  pump() {
-    if (!this.playing || !Sound.ready() || !this.bus) return;
-    const ctx = Sound.ctx;
-    if (ctx.state !== "running") return;          // wait for resume(); the clock does not move while suspended
-    const eighth = 60 / this.BPM / 2;
-    if (this.nextTime < ctx.currentTime - 0.1) this.nextTime = ctx.currentTime + 0.05;   // main thread stalled: skip ahead
-    while (this.nextTime < ctx.currentTime + 0.2) {
-      this.schedule(this.step, this.nextTime);
-      this.nextTime += eighth;
-      this.step = (this.step + 1) % this.MELODY.length;
-    }
+  // watchdog (called every frame): if iOS dropped the source, start it again
+  ensure() {
+    if (!this.playing || !this.buffer || !this.bus || this.source || !Sound.ready()) return;
+    if (Sound.ctx.state !== "running") return;
+    this.attachSource(this.buffer, Sound.ctx.currentTime + 0.02);
+    this.restarts++;
   },
-  voice(type, f, t, gain, attack, decay) {
-    const ctx = Sound.ctx;
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
+
+  // ---- offline synthesis of one loop (same voices as v1.3's live scheduler)
+  voice(octx, out, type, f, t, gain, attack, decay) {
+    const osc = octx.createOscillator();
+    const g = octx.createGain();
     osc.type = type;
     osc.frequency.setValueAtTime(f, t);
     g.gain.setValueAtTime(0.0001, t);
     g.gain.linearRampToValueAtTime(gain, t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
     osc.connect(g);
-    g.connect(this.bus);
+    g.connect(out);
     osc.start(t);
     osc.stop(t + attack + decay + 0.05);
   },
-  marimba(m, t, gain) {
+  marimba(octx, out, m, t, gain) {
     const f = this.freq(m);
-    this.voice("sine", f, t, gain, 0.004, 0.55);
-    this.voice("triangle", f * 2, t, gain * 0.18, 0.003, 0.22);   // octave partial: carries on small phone speakers
-    this.voice("sine", f * 3.93, t, gain * 0.3, 0.002, 0.10);
+    this.voice(octx, out, "sine", f, t, gain, 0.004, 0.55);
+    this.voice(octx, out, "triangle", f * 2, t, gain * 0.18, 0.003, 0.22);   // octave partial: carries on small phone speakers
+    this.voice(octx, out, "sine", f * 3.93, t, gain * 0.3, 0.002, 0.10);
   },
-  toyPiano(m, t, gain) {
+  toyPiano(octx, out, m, t, gain) {
     const f = this.freq(m);
-    this.voice("triangle", f, t, gain, 0.005, 0.38);
-    this.voice("sine", f * 2, t, gain * 0.3, 0.003, 0.14);
+    this.voice(octx, out, "triangle", f, t, gain, 0.005, 0.38);
+    this.voice(octx, out, "sine", f * 2, t, gain * 0.3, 0.003, 0.14);
   },
-  shaker(t, gain) {
-    const ctx = Sound.ctx;
-    const src = ctx.createBufferSource();
-    src.buffer = Sound.noise;
-    const hp = ctx.createBiquadFilter();
+  shaker(octx, out, noise, t, gain, rng) {
+    const src = octx.createBufferSource();
+    src.buffer = noise;
+    const hp = octx.createBiquadFilter();
     hp.type = "highpass";
     hp.frequency.value = 6500;
-    const g = ctx.createGain();
+    const g = octx.createGain();
     g.gain.setValueAtTime(gain, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.035);
     src.connect(hp);
     hp.connect(g);
-    g.connect(this.bus);
-    src.start(t, Math.random() * 0.3);
+    g.connect(out);
+    src.start(t, rng() * 0.3);
     src.stop(t + 0.05);
   },
-  schedule(i, t) {
+  schedule(octx, out, noise, i, t, rng) {
     const bar = i >> 3, pos = i & 7;
     const chord = this.CHORDS[bar];
     const m = this.MELODY[i];
-    if (m) this.marimba(m, t, this.GAIN.melody);
+    if (m) this.marimba(octx, out, m, t, this.GAIN.melody);
     // bass one octave up (E3-C4) on a triangle: phone speakers cannot reproduce the lower octave
-    if (pos === 0) this.voice("triangle", this.freq(chord.root + 12), t, this.GAIN.bass, 0.008, 0.5);
-    if (pos === 4) this.voice("triangle", this.freq(chord.root + 19), t, this.GAIN.bass5, 0.008, 0.45);
+    if (pos === 0) this.voice(octx, out, "triangle", this.freq(chord.root + 12), t, this.GAIN.bass, 0.008, 0.5);
+    if (pos === 4) this.voice(octx, out, "triangle", this.freq(chord.root + 19), t, this.GAIN.bass5, 0.008, 0.45);
     if (pos === 2 || pos === 6) {
-      for (const tone of chord.tones) this.toyPiano(tone, t, this.GAIN.comp);
+      for (const tone of chord.tones) this.toyPiano(octx, out, tone, t, this.GAIN.comp);
     }
-    if (pos % 2 === 1) this.shaker(t, this.GAIN.shaker);
+    if (pos % 2 === 1) this.shaker(octx, out, noise, t, this.GAIN.shaker, rng);
   }
 };
 
@@ -2264,7 +2329,7 @@ const Game = {
     this.resetIdle();
     pauseBtn.disabled = false;
     BGM.start();                                // schedules from the current audio time
-    unlocked.then(() => { if (this.state === "playing" && !BGM.playing) BGM.start(); else BGM.pump(); });
+    unlocked.then(() => { if (this.state === "playing" && !BGM.playing) BGM.start(); else BGM.ensure(); });
   },
   retry() {
     this.newWorld();
@@ -2755,6 +2820,7 @@ const Loop = {
   stepsThisSecond: 0,
   tick(frameDt) {
     const dt = Math.min(frameDt, CONFIG.MAX_FRAME_MS);
+    BGM.ensure();
     if (Game.paused) {
       // physics, drops, particles, idle (AUTO) timer and the game-over timer all stand still
       UI.update(rt);
@@ -2815,6 +2881,8 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 window.addEventListener("pagehide", () => { store.set("fruitdrop.highscore", Game.best); });
+window.addEventListener("pageshow", () => { if (!document.hidden) Sound.resume(); });
+window.addEventListener("focus", () => Sound.resume());
 window.addEventListener("resize", () => Layout.schedule());
 window.addEventListener("orientationchange", () => Layout.schedule());
 
@@ -3165,6 +3233,7 @@ function boot() {
     startOverlay.querySelector(".sub").textContent = "物理エンジンを初期化できませんでした。再読み込みしてください。";
     return;
   }
+  BGM.prepare();
   Input.init();
   Game.init();
   Layout.apply();

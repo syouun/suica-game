@@ -69,15 +69,8 @@ async function checkStartScreen(browser) {
   await p.screenshot({ path: path.join(OUT, "start_screen.png") });
   await p.waitForTimeout(400);
   const stillReady = await p.evaluate(() => __fd.Game.state);
-  // remember when the first BGM note gets scheduled (audio clock) relative to the click
-  await p.evaluate(() => {
-    window.__firstNote = null;
-    const orig = __fd.BGM.schedule.bind(__fd.BGM);
-    __fd.BGM.schedule = function (i, t) {
-      if (window.__firstNote === null) window.__firstNote = { t: t, now: __fd.Sound.ctx.currentTime };
-      return orig(i, t);
-    };
-  });
+  // the loop is rendered at boot, before the player presses START
+  const prepared = await p.evaluate(() => __fd.BGM.prepare().then((b) => ({ ok: !!b, seconds: b ? +b.duration.toFixed(3) : 0 })));
   await p.click("#startBtn");
   const clickAudioTime = await p.evaluate(() => (__fd.Sound.ctx ? __fd.Sound.ctx.currentTime : null));
   await p.waitForTimeout(700);
@@ -89,9 +82,10 @@ async function checkStartScreen(browser) {
       pauseEnabled: !document.getElementById("pauseBtn").disabled,
       audioState: __fd.Sound.ctx && __fd.Sound.ctx.state,
       bgmPlaying: bgm.playing,
-      bgmStepsScheduled: bgm.step,
+      bgmLooping: !!(bgm.source && bgm.source.loop),
+      loopEnd: bgm.source ? +bgm.source.loopEnd.toFixed(3) : null,
       waitingFruitReady: __fd.Game.canDrop(),
-      firstNote: window.__firstNote,
+      firstNote: { t: bgm.startedAt },
       effectiveMelody: +(0.6 * bgm.LEVEL * bgm.GAIN.melody).toFixed(4),
       busNow: +bgm.bus.gain.value.toFixed(3)
     };
@@ -125,12 +119,43 @@ async function checkStartScreen(browser) {
     before.fruits === 0 && !before.bgm && stillReady === "ready" && after.state === "playing" && after.overlayHidden && after.pauseEnabled && after.waitingFruitReady,
   { before: before, after: { state: after.state, overlayHidden: after.overlayHidden, pauseEnabled: after.pauseEnabled, waitingFruitReady: after.waitingFruitReady } });
   const firstNoteDelay = after.firstNote && clickAudioTime !== null ? +(after.firstNote.t - clickAudioTime).toFixed(3) : null;
-  record("R2_bgm_and_mute", after.bgmPlaying && after.bgmStepsScheduled > 0 && muted.muted && muted.master < 0.01 && muted.bgmStillScheduled &&
+  record("R2_bgm_and_mute", prepared.ok && after.bgmPlaying && after.bgmLooping && after.loopEnd === 20 && muted.muted && muted.master < 0.01 && muted.bgmStillScheduled &&
     !unmuted.muted && unmuted.master > 0.55 && after.effectiveMelody >= 0.06 && after.effectiveMelody <= 0.08 &&
     level.bgmPeak >= 0.05 && level.bgmPeak < 0.3 && firstNoteDelay !== null && firstNoteDelay <= 0.15,
-  { audioState: after.audioState, bgmPlaying: after.bgmPlaying, stepsScheduledIn700ms: after.bgmStepsScheduled,
+  { audioState: after.audioState, bgmPlaying: after.bgmPlaying, renderedLoop: prepared, loopingSource: after.bgmLooping, loopEnd: after.loopEnd,
     effectiveMelodyGain: after.effectiveMelody, busGainAfter700ms: after.busNow, measuredOutput: level,
     firstNoteAfterClickSec: firstNoteDelay, muted: muted, unmuted: unmuted });
+  // R2b. keeps playing across the loop boundary for 26 s of real time, and comes back if the source is dropped
+  const longRun = await p.evaluate(() => new Promise((resolve) => {
+    const ctx = __fd.Sound.ctx, bgm = __fd.BGM;
+    const an = ctx.createAnalyser();
+    an.fftSize = 2048;
+    __fd.Sound.master.connect(an);
+    const buf = new Float32Array(an.fftSize);
+    const windows = [];
+    let peak = 0, w0 = performance.now();
+    const t0 = performance.now();
+    let droppedAt = null, restartedAfterMs = null;
+    const timer = setInterval(() => {
+      an.getFloatTimeDomainData(buf);
+      for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i]));
+      const now = performance.now();
+      if (now - w0 >= 2000) { windows.push(+peak.toFixed(3)); peak = 0; w0 = now; }
+      if (droppedAt === null && now - t0 > 22000) {           // simulate iOS dropping the source
+        droppedAt = now;
+        bgm.source.onended && bgm.source.onended();
+        try { bgm.source.stop(); } catch (e) { /* ignore */ }
+      }
+      if (droppedAt !== null && restartedAfterMs === null && bgm.source) restartedAfterMs = Math.round(now - droppedAt);
+      if (now - t0 > 26500) {
+        clearInterval(timer);
+        __fd.Sound.master.disconnect(an);
+        resolve({ peakPer2s: windows, restartedAfterMs: restartedAfterMs, restarts: bgm.restarts, stillPlaying: bgm.playing && !!bgm.source, audioTime: +ctx.currentTime.toFixed(1) });
+      }
+    }, 40);
+  }));
+  record("R2b_bgm_keeps_playing", longRun.peakPer2s.length >= 12 && longRun.peakPer2s.every((v) => v > 0.03) &&
+    longRun.restartedAfterMs !== null && longRun.restartedAfterMs < 500 && longRun.stillPlaying, longRun);
   // keyboard start on a fresh page (Space / Enter)
   const q = await openRaw(browser);
   await q.keyboard.press("Enter");
@@ -322,11 +347,15 @@ async function checkAutoPlay(browser) {
   const afterMouse = await p.evaluate(() => ({ auto: __fd.Game.auto, idleMs: __fd.Game.idleMs, badgeHidden: document.getElementById("autoBadge").classList.contains("hidden"), dropX: Math.round(__fd.Game.dropX) }));
   // once the player has taken over, AUTO never comes back in this game (30 s without input)
   const staysManual = await p.evaluate(() => {
-    const n0 = __fd.world.fruits.length + __fd.world.mergeCount * 2;
+    // count every fruit that enters the world through a drop (Game.drop) while nobody touches anything
+    let drops = 0;
+    const realDrop = __fd.Game.drop;
+    __fd.Game.drop = function () { const ok = realDrop.apply(this, arguments); if (ok) drops++; return ok; };
     let sawAuto = false;
     for (let i = 0; i < 30 * 60; i++) { __fd.stepFrames(60, 1 / 60); if (__fd.Game.auto) sawAuto = true; }
+    __fd.Game.drop = realDrop;
     return { sawAuto: sawAuto, manual: __fd.Game.manual, idleSec: +(__fd.Game.idleMs / 1000).toFixed(1),
-      noAutoDrops: __fd.world.fruits.length + __fd.world.mergeCount * 2 === n0, badgeHidden: document.getElementById("autoBadge").classList.contains("hidden") };
+      drops: drops, noAutoDrops: drops === 0, badgeHidden: document.getElementById("autoBadge").classList.contains("hidden") };
   });
   // retry re-arms the 5 s rule; a key press hands back and the game then stays manual
   const keyGame = await p.evaluate(() => {
