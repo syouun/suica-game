@@ -94,6 +94,8 @@
   #nextCard { grid-area: next; display: flex; flex-direction: column; align-items: center; }
   #ringCard { grid-area: ring; display: flex; flex-direction: column; align-items: center; }
   #muteBtn { grid-area: mute; justify-self: center; align-self: center; }
+  #app.landscape #scoreCard, #app.landscape #bestCard { align-self: center; }
+  #app.landscape #title { margin-bottom: 8px; }
   .score-num {
     font-size: 40px;
     font-weight: 900;
@@ -320,6 +322,7 @@ const CONFIG = {
   OVER_MS: 2000,          // continuous time above the deadline that ends the game
   KEY_SPEED: 360,         // u/s
   MAX_PARTICLES: 400,
+  WALL_TOLERANCE: 0.5,    // allowed penetration into a wall before it is projected out (u)
   SPRITE_MAX_SCALE: 4
 };
 const RENDER = { interpolate: true };
@@ -971,6 +974,7 @@ class PhysicsWorld {
     this.time = 0;
     this.stepIndex = 0;
     this.rescueCount = 0;
+    this.wallClampCount = 0;
     this.mergeCount = 0;
     const W = CONFIG.W, H = CONFIG.H;
     const wallOpts = (label) => ({ isStatic: true, label: label });
@@ -1142,6 +1146,23 @@ class PhysicsWorld {
         Body.setVelocity(f.body, { x: 0, y: 0 });
         Body.setAngularVelocity(f.body, 0);
         this.rescueCount++;
+        continue;
+      }
+      // walls and floor are axis-aligned: project a fruit that was shoved into
+      // them (e.g. by a freshly merged neighbour) straight back out
+      const tol = CONFIG.WALL_TOLERANCE;
+      let nx = p.x, ny = p.y;
+      if (p.x < f.r - tol) nx = f.r;
+      else if (p.x > CONFIG.W - f.r + tol) nx = CONFIG.W - f.r;
+      if (p.y > CONFIG.H - f.r + tol) ny = CONFIG.H - f.r;
+      if (nx !== p.x || ny !== p.y) {
+        Body.setPosition(f.body, { x: nx, y: ny });
+        const v = Body.getVelocity(f.body);
+        Body.setVelocity(f.body, {
+          x: (nx > p.x && v.x < 0) || (nx < p.x && v.x > 0) ? 0 : v.x,
+          y: ny < p.y && v.y > 0 ? 0 : v.y
+        });
+        this.wallClampCount++;
       }
     }
   }
@@ -2415,10 +2436,10 @@ const Debug = {
   },
   showStack(res) {
     $("dbgOut").innerHTML = "<h4>積載テスト（30秒）</h4><table>" +
-      "<tr><td>スイカの下の果物</td><td>" + res.under + "個</td></tr>" +
+      "<tr><td>スイカの下の果物（5秒→30秒）</td><td>" + res.underStart + "→" + res.under + "個</td></tr>" +
       "<tr><td>最大めり込み（果物同士）</td><td class='" + (res.maxPen <= 2 ? "ok" : "ng") + "'>" + res.maxPen.toFixed(3) + "u</td></tr>" +
       "<tr><td>最大めり込み（床）</td><td class='" + (res.maxFloorPen <= 2 ? "ok" : "ng") + "'>" + res.maxFloorPen.toFixed(3) + "u</td></tr>" +
-      "<tr><td>沈み込み（2秒→30秒）</td><td class='" + (Math.abs(res.sink) <= 1 ? "ok" : "ng") + "'>" + res.sink.toFixed(3) + "u</td></tr>" +
+      "<tr><td>沈み込み（5秒→30秒）</td><td class='" + (Math.abs(res.sink) <= 1 ? "ok" : "ng") + "'>" + res.sink.toFixed(3) + "u</td></tr>" +
       "<tr><td>床より下</td><td class='" + (res.belowFloor === 0 ? "ok" : "ng") + "'>" + res.belowFloor + "個</td></tr></table>";
     $("dbgJson").value = JSON.stringify(res, null, 1);
   },
@@ -2476,7 +2497,7 @@ const Debug = {
       const lines = [
         "FPS " + this.fps.toFixed(1) + "  steps/s " + this.sps.toFixed(1),
         "fruits " + fruits.length + "  bodies " + Composite.allBodies(Game.world.engine.world).length + "  fx " + Effects.count(),
-        "rescue " + Game.world.rescueCount + "  over " + Math.round(Game.overTimer) + "ms  t " + (Game.world.time / 1000).toFixed(1) + "s  α " + alpha.toFixed(2)
+        "rescue " + Game.world.rescueCount + "  wallfix " + Game.world.wallClampCount + "  over " + Math.round(Game.overTimer) + "ms  t " + (Game.world.time / 1000).toFixed(1) + "s  α " + alpha.toFixed(2)
       ];
       lines.forEach((l, i) => c.fillText(l, CONFIG.VIEW.x + 4, CONFIG.VIEW.y + 4 + i * 13));
     }
@@ -2569,11 +2590,20 @@ const Tests = {
     for (let i = 0; i < 90; i++) world.step();
     const wm = world.addFruit(11, CONFIG.W / 2 + (o.offsetX || 0), CONFIG.H - 4 * r1 - 2 * r2 - FRUITS[11].r - 10, 0, 0);
     const steps = o.steps || 1800;
-    let maxPen = 0, maxFloorPen = 0, y2 = null;
+    let maxPen = 0, maxFloorPen = 0, y2 = null, underStart = 0;
     const all = world.fruits;
+    const countUnder = () => {
+      const wp = wm.body.position;
+      let n = 0;
+      for (const f of smalls) {
+        const p = f.body.position;
+        if (Math.abs(p.x - wp.x) < wm.r && p.y > wp.y) n++;
+      }
+      return n;
+    };
     for (let i = 0; i < steps; i++) {
       world.step();
-      if (i === 120) y2 = wm.body.position.y;
+      if (i === 300) { y2 = wm.body.position.y; underStart = countUnder(); }
       if (i >= 120 && i % 3 === 0) {
         for (let a = 0; a < all.length; a++) {
           const fa = all[a], pa = fa.body.position;
@@ -2596,23 +2626,24 @@ const Tests = {
       }
     }
     const wp = wm.body.position;
-    let under = 0, belowFloor = 0;
+    const under = countUnder();
+    let belowFloor = 0;
     for (const f of smalls) {
-      const p = f.body.position;
-      if (Math.abs(p.x - wp.x) < wm.r && p.y > wp.y) under++;
-      if (p.y + f.r > CONFIG.H + 2) belowFloor++;
+      if (f.body.position.y + f.r > CONFIG.H + 2) belowFloor++;
     }
     const res = {
       physics: Object.assign({}, PHYSICS),
       seconds: steps / 60,
       fruits: all.length,
       under: under,
+      underStart: underStart,
       maxPen: maxPen,
       endPen: endPen,
       maxFloorPen: maxFloorPen,
       sink: wp.y - y2,
       belowFloor: belowFloor,
-      rescue: world.rescueCount
+      rescue: world.rescueCount,
+      wallClamp: world.wallClampCount
     };
     world.destroy();
     return res;
@@ -2674,7 +2705,7 @@ function boot() {
       getState() {
         return {
           state: Game.state, score: Game.score, best: Game.best, time: Game.world.time,
-          overTimer: Game.overTimer, overState: Game.overState, rescue: Game.world.rescueCount,
+          overTimer: Game.overTimer, overState: Game.overState, rescue: Game.world.rescueCount, wallClamp: Game.world.wallClampCount,
           bodies: Composite.allBodies(Game.world.engine.world).length,
           effects: Effects.count(),
           listeners: Object.keys(Game.world.engine.events || {}).reduce((s, k) => s + Game.world.engine.events[k].length, 0),
