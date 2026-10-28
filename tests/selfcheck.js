@@ -69,7 +69,17 @@ async function checkStartScreen(browser) {
   await p.screenshot({ path: path.join(OUT, "start_screen.png") });
   await p.waitForTimeout(400);
   const stillReady = await p.evaluate(() => __fd.Game.state);
+  // remember when the first BGM note gets scheduled (audio clock) relative to the click
+  await p.evaluate(() => {
+    window.__firstNote = null;
+    const orig = __fd.BGM.schedule.bind(__fd.BGM);
+    __fd.BGM.schedule = function (i, t) {
+      if (window.__firstNote === null) window.__firstNote = { t: t, now: __fd.Sound.ctx.currentTime };
+      return orig(i, t);
+    };
+  });
   await p.click("#startBtn");
+  const clickAudioTime = await p.evaluate(() => (__fd.Sound.ctx ? __fd.Sound.ctx.currentTime : null));
   await p.waitForTimeout(700);
   const after = await p.evaluate(() => {
     const bgm = __fd.BGM;
@@ -80,9 +90,30 @@ async function checkStartScreen(browser) {
       audioState: __fd.Sound.ctx && __fd.Sound.ctx.state,
       bgmPlaying: bgm.playing,
       bgmStepsScheduled: bgm.step,
-      waitingFruitReady: __fd.Game.canDrop()
+      waitingFruitReady: __fd.Game.canDrop(),
+      firstNote: window.__firstNote,
+      effectiveMelody: +(0.6 * bgm.LEVEL * bgm.GAIN.melody).toFixed(4),
+      busNow: +bgm.bus.gain.value.toFixed(3)
     };
   });
+  // measure what actually reaches the output: peak of the master bus while only the BGM plays
+  const level = await p.evaluate(() => new Promise((resolve) => {
+    const ctx = __fd.Sound.ctx;
+    const an = ctx.createAnalyser();
+    an.fftSize = 2048;
+    __fd.Sound.master.connect(an);
+    const buf = new Float32Array(an.fftSize);
+    let peak = 0, sumSq = 0, n = 0;
+    const timer = setInterval(() => {
+      an.getFloatTimeDomainData(buf);
+      for (let i = 0; i < buf.length; i++) { const v = Math.abs(buf[i]); if (v > peak) peak = v; sumSq += buf[i] * buf[i]; n++; }
+    }, 40);
+    setTimeout(() => {
+      clearInterval(timer);
+      __fd.Sound.master.disconnect(an);
+      resolve({ bgmPeak: +peak.toFixed(4), bgmRms: +Math.sqrt(sumSq / Math.max(1, n)).toFixed(4), seconds: 2.5 });
+    }, 2500);
+  }));
   // mute (button and M key) silences BGM and SFX through the shared master gain
   await p.click("#muteBtn");
   await p.waitForTimeout(150);
@@ -93,9 +124,13 @@ async function checkStartScreen(browser) {
   record("R3_start_screen", before.state === "ready" && before.overlayVisible && before.hasStartButton && before.pauseDisabled &&
     before.fruits === 0 && !before.bgm && stillReady === "ready" && after.state === "playing" && after.overlayHidden && after.pauseEnabled && after.waitingFruitReady,
   { before: before, after: { state: after.state, overlayHidden: after.overlayHidden, pauseEnabled: after.pauseEnabled, waitingFruitReady: after.waitingFruitReady } });
+  const firstNoteDelay = after.firstNote && clickAudioTime !== null ? +(after.firstNote.t - clickAudioTime).toFixed(3) : null;
   record("R2_bgm_and_mute", after.bgmPlaying && after.bgmStepsScheduled > 0 && muted.muted && muted.master < 0.01 && muted.bgmStillScheduled &&
-    !unmuted.muted && unmuted.master > 0.55 && unmuted.bgmBus > 0 && unmuted.bgmBus <= 0.3 + 1e-6,
-  { audioState: after.audioState, bgmPlaying: after.bgmPlaying, stepsScheduledIn700ms: after.bgmStepsScheduled, muted: muted, unmuted: unmuted });
+    !unmuted.muted && unmuted.master > 0.55 && after.effectiveMelody >= 0.06 && after.effectiveMelody <= 0.08 &&
+    level.bgmPeak >= 0.05 && level.bgmPeak < 0.3 && firstNoteDelay !== null && firstNoteDelay <= 0.15,
+  { audioState: after.audioState, bgmPlaying: after.bgmPlaying, stepsScheduledIn700ms: after.bgmStepsScheduled,
+    effectiveMelodyGain: after.effectiveMelody, busGainAfter700ms: after.busNow, measuredOutput: level,
+    firstNoteAfterClickSec: firstNoteDelay, muted: muted, unmuted: unmuted });
   // keyboard start on a fresh page (Space / Enter)
   const q = await openRaw(browser);
   await q.keyboard.press("Enter");
@@ -104,6 +139,76 @@ async function checkStartScreen(browser) {
   record("R3_keyboard_start", keyStart.state === "playing" && keyStart.bgm, keyStart);
   if (p.errors.length) results.pageErrors = (results.pageErrors || []).concat(p.errors);
   await p.closeAll();
+}
+
+// L1. start / pause overlays on phones: full screen, card and button fully visible, no wrapped lines
+async function checkOverlayLayouts(browser) {
+  const sizes = [
+    { name: "iphone_se1_320x568", viewport: { width: 320, height: 568 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+    { name: "iphone_se2_375x667", viewport: { width: 375, height: 667 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+    { name: "iphone_14_390x844", viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true },
+    { name: "android_360x640", viewport: { width: 360, height: 640 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true },
+    { name: "pixel_412x915", viewport: { width: 412, height: 915 }, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true },
+    { name: "phone_landscape_844x390", viewport: { width: 844, height: 390 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true },
+    { name: "phone_landscape_640x320", viewport: { width: 640, height: 320 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+    { name: "desktop_1280x800", viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 }
+  ];
+  const rows = [];
+  for (const sz of sizes) {
+    const p = await openRaw(browser, { viewport: sz.viewport, deviceScaleFactor: sz.deviceScaleFactor, isMobile: !!sz.isMobile, hasTouch: !!sz.hasTouch });
+    await p.waitForTimeout(650);                    // card entrance animation
+    const measure = (overlayId, btnId) => p.evaluate(([oid, bid]) => {
+      const ov = document.getElementById(oid);
+      const card = ov.querySelector(".start-card");
+      const btn = document.getElementById(bid);
+      const o = ov.getBoundingClientRect(), c = card.getBoundingClientRect(), b = btn.getBoundingClientRect();
+      const vw = innerWidth, vh = innerHeight;
+      const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      const lines = [...card.querySelectorAll(".howto li")].filter((li) => li.offsetParent !== null).map((li) => {
+        const lh = parseFloat(getComputedStyle(li).lineHeight);
+        return { h: Math.round(li.getBoundingClientRect().height), lh: Math.round(lh), wrapped: li.getBoundingClientRect().height > lh * 1.4, overflow: li.scrollWidth > li.clientWidth + 1 };
+      });
+      const title = card.querySelector(".big, .pause-title");
+      const tfs = parseFloat(getComputedStyle(title).fontSize);
+      return {
+        coversViewport: Math.abs(o.left) < 1 && Math.abs(o.top) < 1 && Math.abs(o.width - vw) < 1 && Math.abs(o.height - vh) < 1,
+        cardInside: c.left >= 0 && c.top >= 0 && c.right <= vw + 0.5 && c.bottom <= vh + 0.5,
+        card: [Math.round(c.left), Math.round(c.top), Math.round(c.width), Math.round(c.height)],
+        buttonInside: b.left >= 0 && b.top >= 0 && b.right <= vw && b.bottom <= vh,
+        buttonHitTest: hit === btn || btn.contains(hit),
+        buttonSize: [Math.round(b.width), Math.round(b.height)],
+        titleOneLine: title.getBoundingClientRect().height < tfs * 1.7,
+        titleFontPx: tfs,
+        howtoFontPx: lines.length ? parseFloat(getComputedStyle(card.querySelector(".howto")).fontSize) : null,
+        lines: lines,
+        cardOverflowsHorizontally: card.scrollWidth > card.clientWidth + 1
+      };
+    }, [overlayId, btnId]);
+    const start = await measure("startOverlay", "startBtn");
+    await p.screenshot({ path: path.join(OUT, "layout_start_" + sz.name + ".png") });
+    if (sz.hasTouch) {
+      const bb = await p.locator("#startBtn").boundingBox();
+      await p.touchscreen.tap(bb.x + bb.width / 2, bb.y + bb.height / 2);
+    } else {
+      await p.click("#startBtn");
+    }
+    const started = await p.evaluate(() => __fd.Game.state);
+    await p.evaluate(() => { __fd.Loop.stop(); __fd.Game.autoEnabled = false; __fd.pause(true); });
+    await p.waitForTimeout(650);
+    const pause = await measure("pauseOverlay", "resumeBtn");
+    await p.screenshot({ path: path.join(OUT, "layout_pause_" + sz.name + ".png") });
+    const ok = (m) => m.coversViewport && m.cardInside && m.buttonInside && m.buttonHitTest && m.buttonSize[1] >= 44 && m.titleOneLine &&
+      m.lines.every((l) => !l.wrapped && !l.overflow) && !m.cardOverflowsHorizontally;
+    rows.push({ name: sz.name, ok: ok(start) && ok(pause) && started === "playing", startedByTap: started === "playing", start: start, pause: pause });
+    if (p.errors.length) results.pageErrors = (results.pageErrors || []).concat(p.errors);
+    await p.closeAll();
+  }
+  record("L1_overlay_layout_phones", rows.every((r) => r.ok), rows.map((r) => ({
+    name: r.name, ok: r.ok, startedByTap: r.startedByTap,
+    startCard: r.start.card, startButton: r.start.buttonSize, titlePx: r.start.titleFontPx, howtoPx: r.start.howtoFontPx,
+    linesWrapped: r.start.lines.filter((l) => l.wrapped || l.overflow).length,
+    pauseCard: r.pause.card
+  })));
 }
 
 // R4. pause: physics, drops, particles, idle timer and game-over timer stand still
@@ -597,6 +702,7 @@ async function checkAutoPlay(browser) {
 
   // ---- v1.2 features: start screen, BGM, pause, AUTO PLAY
   await checkStartScreen(browser);
+  await checkOverlayLayouts(browser);
   await checkPause(browser);
   await checkAutoPlay(browser);
 

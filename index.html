@@ -165,50 +165,98 @@
   }
   #field { position: relative; flex: none; }
   #game { display: block; width: 100%; height: 100%; }
+  /* full-screen overlays (start / pause): laid out against the whole viewport, not the scaled field */
   .overlay {
-    position: absolute;
+    position: fixed;
     inset: 0;
+    z-index: 20;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
   }
   .overlay.hidden { display: none; }
-  #startOverlay { background: rgba(255,241,214,0.55); cursor: default; }
-  #pauseOverlay { background: rgba(60,38,20,0.45); cursor: default; }
+  #startOverlay {
+    background: rgba(255,241,214,0.74);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+  }
+  #pauseOverlay { background: rgba(60,38,20,0.5); }
   .start-card {
-    background: rgba(255,253,246,0.96);
+    margin: auto;                      /* centred when it fits, scrollable when it does not */
+    flex: none;
+    width: min(360px, 100%);
+    background: rgba(255,253,246,0.97);
     border: 4px solid var(--frame);
     border-radius: 22px;
     box-shadow: 0 6px 0 rgba(138,90,43,0.3);
-    padding: 22px 24px 20px;
+    padding: clamp(16px, 4.6vw, 24px) clamp(14px, 4.6vw, 24px) clamp(14px, 4vw, 20px);
     text-align: center;
-    width: 340px;
-    max-width: 92%;
     animation: cardIn 520ms cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   @keyframes cardIn { from { opacity: 0; transform: translateY(30px) scale(0.92); } to { opacity: 1; transform: none; } }
   .start-card .big {
-    font-size: 30px;
+    font-size: clamp(24px, 7.6vw, 32px);
     white-space: nowrap;
     font-weight: 900;
     color: #E8603C;
-    line-height: 1.15;
+    line-height: 1.2;
     text-shadow: -1px -1px 0 var(--frame), 1px -1px 0 var(--frame), -1px 1px 0 var(--frame), 1px 1px 0 var(--frame), 0 3px 0 rgba(138,90,43,0.35);
   }
-  .start-card .sub { font-size: 13px; color: var(--ink-soft); margin: 6px 0 12px; }
-  .start-card .fruits { display: flex; justify-content: center; gap: 4px; margin-bottom: 10px; }
-  .start-card .fruits canvas { width: 30px; height: 30px; animation: hop 1.6s ease-in-out infinite; }
+  .start-card .sub { font-size: clamp(12px, 3.5vw, 14px); line-height: 1.5; color: var(--ink-soft); margin: 6px 0 12px; }
+  .start-card .fruits { display: flex; justify-content: center; gap: 6px; margin-bottom: 10px; }
+  .start-card .fruits canvas { width: clamp(26px, 8vw, 34px); height: clamp(26px, 8vw, 34px); animation: hop 1.6s ease-in-out infinite; }
   .start-card .fruits canvas:nth-child(2) { animation-delay: 0.15s; }
   .start-card .fruits canvas:nth-child(3) { animation-delay: 0.3s; }
   .start-card .fruits canvas:nth-child(4) { animation-delay: 0.45s; }
   .start-card .fruits canvas:nth-child(5) { animation-delay: 0.6s; }
   @keyframes hop { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
-  .howto { list-style: none; margin: 0 0 4px; padding: 10px 12px; background: #FFF6E2; border-radius: 12px; text-align: left; font-size: 13px; line-height: 1.7; }
-  .howto li { display: grid; grid-template-columns: 4.6em 1fr; align-items: baseline; }
+  .howto {
+    list-style: none;
+    margin: 0 0 4px;
+    padding: 10px 14px;
+    background: #FFF6E2;
+    border-radius: 12px;
+    text-align: left;
+    font-size: clamp(12.5px, 3.8vw, 14px);
+    line-height: 1.75;
+  }
+  .howto li { display: grid; grid-template-columns: 5em 1fr; align-items: baseline; white-space: nowrap; }
   .howto b { color: var(--ink-soft); }
-  .start-card .hint { font-size: 12px; color: var(--ink-soft); margin-top: 8px; }
-  .pause-title { font-size: 40px; font-weight: 900; letter-spacing: 0.12em; color: #5A3A22; }
+  .howto .touch { display: none; }
+  .howto .ico { width: 1.15em; height: 1.15em; vertical-align: -0.2em; margin-right: 2px; fill: #F79A3E; stroke: #5A3A22; stroke-width: 2.2; }
+  .start-card .btn {
+    display: block;
+    width: min(100%, 260px);
+    min-height: 52px;
+    margin: 14px auto 0;
+    font-size: 20px;
+    padding: 10px 20px;
+    touch-action: manipulation;
+  }
+  .start-card .hint { font-size: 12px; color: var(--ink-soft); margin-top: 10px; }
+  .pause-title { font-size: clamp(32px, 10vw, 40px); font-weight: 900; letter-spacing: 0.12em; color: #5A3A22; }
+  /* touch devices: touch-only instructions, no keyboard hints */
+  @media (hover: none) and (pointer: coarse) {
+    .howto .pc, .start-card .hint.keys { display: none; }
+    .howto .touch { display: inline; }
+  }
+  /* short screens (small phones, landscape phones): drop the decorations, keep the button visible */
+  @media (max-height: 600px) {
+    .start-card { padding: 14px 16px 14px; }
+    .start-card .sub { margin: 4px 0 8px; }
+    .start-card .fruits { margin-bottom: 4px; }
+    .start-card .fruits canvas { width: 24px; height: 24px; }
+    .howto { line-height: 1.55; padding: 8px 12px; }
+    .start-card .btn { min-height: 46px; margin-top: 10px; }
+    .start-card .hint { margin-top: 6px; }
+  }
+  @media (max-height: 460px) {
+    .start-card .fruits, .start-card .sub, .start-card .hint { display: none; }
+    .start-card .big { font-size: 24px; margin-bottom: 8px; }
+  }
   @keyframes blink { 50% { opacity: 0.35; } }
   #autoBadge {
     position: absolute;
@@ -333,28 +381,6 @@
     <div id="field">
       <canvas id="game"></canvas>
       <div id="autoBadge" class="hidden"><b>AUTO PLAY中</b>操作すると手動に戻ります</div>
-      <div id="startOverlay" class="overlay">
-        <div class="start-card">
-          <div class="fruits" id="titleFruits"></div>
-          <div class="big">フルーツドロップ</div>
-          <div class="sub">おなじ果物どうしをくっつけて、大きく育てよう！</div>
-          <ul class="howto">
-            <li><b>移動</b>ドラッグ / マウス / ← →キー</li>
-            <li><b>投下</b>クリック / 指をはなす / スペース</li>
-            <li><b>一時停止</b>一時停止ボタン / P・Escキー</li>
-          </ul>
-          <button id="startBtn" class="btn" type="button">GAME START</button>
-          <div class="hint">スペース / Enter キーでもスタート</div>
-        </div>
-      </div>
-      <div id="pauseOverlay" class="overlay hidden">
-        <div class="start-card">
-          <div class="pause-title">PAUSE</div>
-          <div class="sub">一時停止中</div>
-          <button id="resumeBtn" class="btn" type="button">再開する（RESUME）</button>
-          <div class="hint">P / Esc キーでも再開</div>
-        </div>
-      </div>
       <div id="result" class="hidden">
         <div class="card">
           <h2>ゲームオーバー</h2>
@@ -366,6 +392,29 @@
       </div>
     </div>
   </main>
+</div>
+
+<div id="startOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="startTitle">
+  <div class="start-card">
+    <div class="fruits" id="titleFruits"></div>
+    <div class="big" id="startTitle">フルーツドロップ</div>
+    <div class="sub">おなじ果物どうしをくっつけて、<br>大きく育てよう！</div>
+    <ul class="howto">
+      <li><b>移動</b><span class="pc">マウス / ドラッグ / ← →キー</span><span class="touch">指で左右にドラッグ</span></li>
+      <li><b>投下</b><span class="pc">クリック / スペースキー</span><span class="touch">指をはなす</span></li>
+      <li><b>一時停止</b><span class="pc"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4.2" height="14" rx="1.2"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.2"/></svg>ボタン / P・Escキー</span><span class="touch"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4.2" height="14" rx="1.2"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.2"/></svg>ボタン</span></li>
+    </ul>
+    <button id="startBtn" class="btn" type="button">GAME START</button>
+    <div class="hint keys">スペース / Enter キーでもスタート</div>
+  </div>
+</div>
+<div id="pauseOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="pauseTitle">
+  <div class="start-card">
+    <div class="pause-title" id="pauseTitle">PAUSE</div>
+    <div class="sub">一時停止中</div>
+    <button id="resumeBtn" class="btn" type="button">再開する（RESUME）</button>
+    <div class="hint keys">P / Esc キーでも再開</div>
+  </div>
 </div>
 
 <!-- Matter.js 0.19.0 (MIT License, Copyright (c) Liam Brummitt and contributors).
@@ -1294,6 +1343,8 @@ const Sound = {
   noise: null,
   muted: store.get("fruitdrop.muted", "0") === "1",
   lastMerge: -1,
+  // Must be called from inside a user gesture (click / touchend / keydown).
+  // Returns a promise that settles once the context is running (or failed to).
   unlock() {
     try {
       if (!this.ctx) {
@@ -1314,9 +1365,23 @@ const Sound = {
         this.ctx = ctx;
         this.master = master;
         this.noise = buf;
+        ctx.onstatechange = () => { if (ctx.state === "running") BGM.pump(); };
       }
-      if (this.ctx.state === "suspended") this.ctx.resume();
-    } catch (e) { this.ctx = null; }
+      const ctx = this.ctx;
+      if (ctx.state !== "running") {
+        // iOS Safari only unlocks Web Audio when a sound is started inside the gesture
+        const src = ctx.createBufferSource();
+        src.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+        src.connect(ctx.destination);
+        src.start(0);
+        const p = ctx.resume();
+        return p && p.then ? p.catch(() => {}) : Promise.resolve();
+      }
+      return Promise.resolve();
+    } catch (e) {
+      this.ctx = null;
+      return Promise.resolve();
+    }
   },
   setMuted(m) {
     this.muted = m;
@@ -1333,7 +1398,10 @@ const Sound = {
     if (this.ctx && this.ctx.state === "running") { try { this.ctx.suspend(); } catch (e) { /* ignore */ } }
   },
   resume() {
-    if (this.ctx && this.ctx.state === "suspended") { try { this.ctx.resume(); } catch (e) { /* ignore */ } }
+    // "interrupted" is iOS's state after a phone call / Siri / backgrounding
+    if (this.ctx && (this.ctx.state === "suspended" || this.ctx.state === "interrupted")) {
+      try { this.ctx.resume(); } catch (e) { /* ignore */ }
+    }
   },
   tone(o) {
     const ctx = this.ctx;
@@ -1416,8 +1484,9 @@ const Sound = {
  * ========================================================================= */
 const BGM = {
   BPM: 96,
-  LEVEL: 0.30,           // bus gain relative to the master (SFX notes peak around 0.2-0.25)
+  LEVEL: 1.0,            // bus gain; effective melody peak = 0.6 (master) x 1.0 x 0.13 = 0.078 (SFX peak 0.15)
   DUCK: 0.35,            // multiplier while paused
+  GAIN: { melody: 0.13, bass: 0.10, bass5: 0.08, comp: 0.06, shaker: 0.03 },   // per-note peak gains on the bus
   // melody, MIDI note numbers per eighth note (0 = rest)
   MELODY: [
     76, 0, 79, 0, 81, 79, 76, 0,     // C
@@ -1453,12 +1522,13 @@ const BGM = {
     const ctx = Sound.ctx;
     const t = ctx.currentTime;
     const bus = ctx.createGain();
+    // short fade-in: the first note sounds almost immediately after GAME START
     bus.gain.setValueAtTime(0.0001, t);
-    bus.gain.linearRampToValueAtTime(this.LEVEL * (this.ducked ? this.DUCK : 1), t + 1.2);
+    bus.gain.linearRampToValueAtTime(this.LEVEL * (this.ducked ? this.DUCK : 1), t + 0.12);
     bus.connect(Sound.master);
     this.bus = bus;
     this.step = 0;
-    this.nextTime = t + 0.15;
+    this.nextTime = t + 0.05;
     this.playing = true;
     this.timer = setInterval(() => this.pump(), 25);
     this.pump();
@@ -1489,6 +1559,7 @@ const BGM = {
   pump() {
     if (!this.playing || !Sound.ready() || !this.bus) return;
     const ctx = Sound.ctx;
+    if (ctx.state !== "running") return;          // wait for resume(); the clock does not move while suspended
     const eighth = 60 / this.BPM / 2;
     if (this.nextTime < ctx.currentTime - 0.1) this.nextTime = ctx.currentTime + 0.05;   // main thread stalled: skip ahead
     while (this.nextTime < ctx.currentTime + 0.2) {
@@ -1514,7 +1585,8 @@ const BGM = {
   marimba(m, t, gain) {
     const f = this.freq(m);
     this.voice("sine", f, t, gain, 0.004, 0.55);
-    this.voice("sine", f * 3.93, t, gain * 0.22, 0.002, 0.10);
+    this.voice("triangle", f * 2, t, gain * 0.18, 0.003, 0.22);   // octave partial: carries on small phone speakers
+    this.voice("sine", f * 3.93, t, gain * 0.3, 0.002, 0.10);
   },
   toyPiano(m, t, gain) {
     const f = this.freq(m);
@@ -1541,13 +1613,14 @@ const BGM = {
     const bar = i >> 3, pos = i & 7;
     const chord = this.CHORDS[bar];
     const m = this.MELODY[i];
-    if (m) this.marimba(m, t, 0.11);
-    if (pos === 0) this.voice("sine", this.freq(chord.root), t, 0.12, 0.008, 0.5);
-    if (pos === 4) this.voice("sine", this.freq(chord.root + 7), t, 0.09, 0.008, 0.45);
+    if (m) this.marimba(m, t, this.GAIN.melody);
+    // bass one octave up (E3-C4) on a triangle: phone speakers cannot reproduce the lower octave
+    if (pos === 0) this.voice("triangle", this.freq(chord.root + 12), t, this.GAIN.bass, 0.008, 0.5);
+    if (pos === 4) this.voice("triangle", this.freq(chord.root + 19), t, this.GAIN.bass5, 0.008, 0.45);
     if (pos === 2 || pos === 6) {
-      for (const tone of chord.tones) this.toyPiano(tone, t, 0.035);
+      for (const tone of chord.tones) this.toyPiano(tone, t, this.GAIN.comp);
     }
-    if (pos % 2 === 1) this.shaker(t, 0.012);
+    if (pos % 2 === 1) this.shaker(t, this.GAIN.shaker);
   }
 };
 
@@ -2120,7 +2193,7 @@ const UI = {
     box.textContent = "";
     for (const stage of [1, 3, 6, 8, 11]) {
       const c = document.createElement("canvas");
-      const size = 30;
+      const size = 34;
       c.width = Math.round(size * dpr);
       c.height = Math.round(size * dpr);
       const g = c.getContext("2d");
@@ -2181,14 +2254,15 @@ const Game = {
   },
   start() {
     if (this.state !== "ready") return;
-    Sound.unlock();
+    const unlocked = Sound.unlock();            // still inside the click / key gesture
     startOverlay.classList.add("hidden");
     this.state = "playing";
     this.bestAtStart = this.best;
     this.waitingVisibleAt = rt;
     this.resetIdle();
     pauseBtn.disabled = false;
-    BGM.start();
+    BGM.start();                                // schedules from the current audio time
+    unlocked.then(() => { if (this.state === "playing" && !BGM.playing) BGM.start(); else BGM.pump(); });
   },
   retry() {
     this.newWorld();
@@ -2441,8 +2515,10 @@ const Input = {
     return (clientX - rect.left) / rect.width * CONFIG.VIEW.w + CONFIG.VIEW.x;
   },
   init() {
-    const unlock = () => Sound.unlock();
+    const unlock = () => { Sound.unlock(); };
     window.addEventListener("pointerdown", unlock, true);
+    window.addEventListener("touchend", unlock, { capture: true, passive: true });
+    window.addEventListener("click", unlock, true);
     window.addEventListener("keydown", unlock, true);
 
     // user-activity detection for AUTO PLAY (capture phase, before anything else)
@@ -2531,7 +2607,7 @@ const Input = {
     });
     window.addEventListener("blur", () => { this.keys.left = false; this.keys.right = false; });
 
-    const prevent = (e) => { if (!(e.target.closest && e.target.closest("#debugPanel"))) e.preventDefault(); };
+    const prevent = (e) => { if (!(e.target.closest && e.target.closest("#debugPanel, .overlay"))) e.preventDefault(); };
     document.addEventListener("touchmove", prevent, { passive: false });
     document.addEventListener("gesturestart", prevent, { passive: false });
     document.addEventListener("dblclick", prevent, { passive: false });
