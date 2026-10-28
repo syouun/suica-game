@@ -1,0 +1,2693 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#FFF1D6">
+<title>フルーツドロップ</title>
+<style>
+  :root {
+    --ink: #5A3A22;
+    --ink-soft: #A0703F;
+    --frame: #8A5A2B;
+    --card: #FFFDF6;
+    --accent: #F79A3E;
+    --side: clamp(140px, 18vw, 220px);
+    --font: "Hiragino Maru Gothic ProN", "Arial Rounded MT Bold", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    position: fixed;
+    inset: 0;
+    margin: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    font-family: var(--font);
+    font-weight: 800;
+    color: var(--ink);
+    background-color: #FFF1D6;
+    background-image:
+      radial-gradient(circle at 0% 0%, rgba(255,200,140,0.18) 0, rgba(255,200,140,0.18) 30vmin, transparent 30.2vmin),
+      radial-gradient(circle at 100% 0%, rgba(255,200,140,0.18) 0, rgba(255,200,140,0.18) 30vmin, transparent 30.2vmin),
+      radial-gradient(circle at 0% 100%, rgba(255,200,140,0.18) 0, rgba(255,200,140,0.18) 30vmin, transparent 30.2vmin),
+      radial-gradient(circle at 100% 100%, rgba(255,200,140,0.18) 0, rgba(255,200,140,0.18) 30vmin, transparent 30.2vmin),
+      radial-gradient(#F7DDB0 2px, transparent 2.6px),
+      radial-gradient(#F7DDB0 2px, transparent 2.6px);
+    background-size: 100% 100%, 100% 100%, 100% 100%, 100% 100%, 36px 36px, 36px 36px;
+    background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 18px 18px;
+  }
+  #app {
+    position: absolute;
+    inset: 0;
+    height: 100vh;
+    height: 100dvh;
+    display: grid;
+    gap: 10px;
+    padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  }
+  #app.landscape {
+    grid-template-columns: var(--side) minmax(0, 1fr) var(--side);
+    grid-template-rows: 1fr auto auto auto 1fr;
+    grid-template-areas:
+      ".     stage ."
+      "title stage next"
+      "score stage ring"
+      "best  stage mute"
+      ".     stage .";
+  }
+  #app.portrait {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    grid-template-rows: 76px minmax(0, 1fr) 112px;
+    grid-template-areas:
+      "score best  next"
+      "stage stage stage"
+      "title ring  mute";
+    gap: 8px;
+  }
+  .card {
+    background: var(--card);
+    border: 4px solid var(--frame);
+    border-radius: 18px;
+    box-shadow: 0 4px 0 rgba(138,90,43,0.25);
+    padding: 10px 14px;
+    text-align: center;
+  }
+  .label { font-size: 13px; letter-spacing: 0.1em; color: var(--ink-soft); }
+  #title {
+    grid-area: title;
+    margin: 0;
+    font-size: 26px;
+    font-weight: 900;
+    color: #E8603C;
+    text-align: center;
+    line-height: 1.15;
+    text-shadow: -1px -1px 0 var(--frame), 1px -1px 0 var(--frame), -1px 1px 0 var(--frame), 1px 1px 0 var(--frame), 0 3px 0 rgba(138,90,43,0.35);
+    align-self: center;
+  }
+  #scoreCard { grid-area: score; }
+  #bestCard { grid-area: best; }
+  #nextCard { grid-area: next; display: flex; flex-direction: column; align-items: center; }
+  #ringCard { grid-area: ring; display: flex; flex-direction: column; align-items: center; }
+  #muteBtn { grid-area: mute; justify-self: center; align-self: center; }
+  .score-num {
+    font-size: 40px;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    display: inline-block;
+    transition: transform 150ms ease-out;
+  }
+  .score-num.bump { transform: scale(1.15); transition: none; }
+  .best-num { font-size: 22px; font-weight: 900; font-variant-numeric: tabular-nums; }
+  .next-frame {
+    width: 92px;
+    height: 92px;
+    margin-top: 4px;
+    border-radius: 50%;
+    background: #FFF6E2;
+    border: 4px solid var(--frame);
+    position: relative;
+    overflow: hidden;
+  }
+  .next-frame canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #ringCanvas { width: 180px; height: 180px; margin-top: 2px; }
+  #muteBtn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 3px solid var(--frame);
+    background: var(--card);
+    box-shadow: 0 4px 0 rgba(138,90,43,0.35);
+    padding: 0;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+  }
+  #muteBtn:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(138,90,43,0.35); }
+  #muteBtn svg { width: 24px; height: 24px; }
+  #muteBtn .slash { display: none; }
+  #muteBtn.muted .slash { display: inline; }
+  #muteBtn.muted .wave { display: none; }
+
+  #app.portrait .card { padding: 6px 8px; border-radius: 14px; }
+  #app.portrait .score-num { font-size: 28px; }
+  #app.portrait .best-num { font-size: 18px; line-height: 1.6; }
+  #app.portrait #nextCard { flex-direction: row; gap: 6px; padding: 6px 8px; }
+  #app.portrait .next-frame { width: 56px; height: 56px; margin-top: 0; border-width: 3px; }
+  #app.portrait #ringCard { padding: 4px; justify-content: center; }
+  #app.portrait #ringCard .label { display: none; }
+  #app.portrait #ringCanvas { width: 100px; height: 100px; }
+  #app.portrait #title { font-size: 20px; }
+  #app.portrait #muteBtn { margin-right: 6px; }
+
+  #stage {
+    grid-area: stage;
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: none;
+  }
+  #field { position: relative; flex: none; }
+  #game { display: block; width: 100%; height: 100%; }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .overlay.hidden { display: none; }
+  .start-card {
+    background: rgba(255,253,246,0.94);
+    border: 4px solid var(--frame);
+    border-radius: 18px;
+    box-shadow: 0 4px 0 rgba(138,90,43,0.25);
+    padding: 22px 26px;
+    text-align: center;
+  }
+  .start-card .big { font-size: 28px; font-weight: 900; color: #E8603C; margin-bottom: 10px; }
+  .start-card .small { font-size: 15px; animation: blink 1.4s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: 0.35; } }
+  #result {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 280px;
+    max-width: 90%;
+    margin-left: -140px;
+    margin-top: -130px;
+    opacity: 0;
+    transform: translateY(40px);
+    pointer-events: none;
+    cursor: default;
+    transition: opacity 450ms cubic-bezier(0.34, 1.56, 0.64, 1), transform 450ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  #result.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  #result.hidden { display: none; }
+  #result .card { padding: 18px; }
+  #result h2 { margin: 0 0 8px; font-size: 24px; font-weight: 900; color: #E8603C; }
+  #result .row { display: flex; justify-content: space-between; align-items: baseline; margin: 6px 4px; font-size: 16px; }
+  #result .row b { font-size: 26px; font-variant-numeric: tabular-nums; }
+  #newRecord {
+    display: inline-block;
+    margin: 4px 0 6px;
+    padding: 3px 12px;
+    border-radius: 999px;
+    background: #FFC94A;
+    border: 3px solid var(--frame);
+    font-size: 14px;
+    visibility: hidden;
+  }
+  #newRecord.on { visibility: visible; animation: recordPop 400ms ease-out; }
+  @keyframes recordPop { 0% { transform: scale(0.9); } 55% { transform: scale(1.1); } 100% { transform: scale(1); } }
+  .btn {
+    margin-top: 10px;
+    font-family: var(--font);
+    font-weight: 900;
+    font-size: 18px;
+    color: #fff;
+    background: var(--accent);
+    border: 3px solid var(--frame);
+    border-radius: 999px;
+    box-shadow: 0 4px 0 var(--frame);
+    padding: 8px 28px;
+    cursor: pointer;
+  }
+  .btn:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--frame); }
+  .btn:focus-visible { outline: 3px solid #5BC0EB; outline-offset: 3px; }
+
+  #debugPanel {
+    position: fixed;
+    right: 8px;
+    bottom: 8px;
+    width: 300px;
+    max-height: calc(100dvh - 16px);
+    overflow: auto;
+    background: rgba(255,255,255,0.92);
+    border: 2px solid #8A5A2B;
+    border-radius: 10px;
+    font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace;
+    color: #333;
+    z-index: 50;
+    touch-action: auto;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  #debugPanel summary { cursor: pointer; padding: 6px 8px; font-weight: bold; background: #FBE7C6; }
+  #debugPanel .body { padding: 6px 8px; }
+  #debugPanel .sl { display: grid; grid-template-columns: 1fr 64px; gap: 2px 6px; align-items: center; margin-bottom: 4px; }
+  #debugPanel .sl label { grid-column: 1 / 3; display: flex; justify-content: space-between; }
+  #debugPanel .sl input[type=range] { width: 100%; grid-column: 1 / 2; }
+  #debugPanel .sl input[type=number] { width: 64px; font: inherit; }
+  #debugPanel button { font: inherit; margin: 2px 2px 2px 0; padding: 3px 6px; cursor: pointer; }
+  #debugPanel table { border-collapse: collapse; width: 100%; margin: 4px 0; }
+  #debugPanel td, #debugPanel th { border: 1px solid #ddd; padding: 1px 3px; text-align: right; }
+  #debugPanel td:first-child, #debugPanel th:first-child { text-align: left; }
+  #debugPanel .ok { color: #1a7f37; font-weight: bold; }
+  #debugPanel .ng { color: #c62828; font-weight: bold; }
+  #debugPanel textarea { width: 100%; height: 80px; font: 11px ui-monospace, monospace; }
+  #debugPanel h4 { margin: 8px 0 2px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="app" class="landscape">
+  <h1 id="title">フルーツ<br>ドロップ</h1>
+  <div id="scoreCard" class="card"><div class="label">SCORE</div><div id="score" class="score-num">0</div></div>
+  <div id="bestCard" class="card"><div class="label">BEST</div><div id="best" class="best-num">0</div></div>
+  <div id="nextCard" class="card"><div class="label">NEXT</div><div class="next-frame"><canvas id="nextCanvas"></canvas></div></div>
+  <div id="ringCard" class="card"><div class="label">しんかの輪</div><canvas id="ringCanvas"></canvas></div>
+  <button id="muteBtn" type="button" aria-label="音のオン・オフ">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#5A3A22" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="#F79A3E"/>
+      <path class="wave" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>
+      <path class="slash" d="M15.5 9.5l5 5M20.5 9.5l-5 5"/>
+    </svg>
+  </button>
+  <main id="stage">
+    <div id="field">
+      <canvas id="game"></canvas>
+      <div id="startOverlay" class="overlay">
+        <div class="start-card">
+          <div class="big">フルーツドロップ</div>
+          <div class="small">タップ・クリックでスタート</div>
+        </div>
+      </div>
+      <div id="result" class="hidden">
+        <div class="card">
+          <h2>ゲームオーバー</h2>
+          <div id="newRecord">NEW RECORD!</div>
+          <div class="row"><span>スコア</span><b id="resultScore">0</b></div>
+          <div class="row"><span>ベスト</span><b id="resultBest">0</b></div>
+          <button id="retryBtn" class="btn" type="button">もう一度</button>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<script>
+"use strict";
+(function () {
+
+/* =========================================================================
+ * CONFIG
+ * ========================================================================= */
+const CONFIG = {
+  W: 400,                 // container inner width (u)
+  H: 500,                 // container inner height (u)
+  T: 16,                  // visual frame thickness (u)
+  DEAD_Y: 40,             // deadline (u, from the rim)
+  NEAR_MARGIN: 60,        // "approaching" margin above the deadline
+  DROP_Y: -60,            // center y of the waiting fruit
+  RAIL_Y: -104,           // drop rail
+  VIEW: { x: -30, y: -130, w: 460, h: 660 },
+  STEP_MS: 1000 / 60,
+  MAX_STEPS_PER_FRAME: 5,
+  MAX_FRAME_MS: 250,
+  MAX_EFFECT_DT: 50,
+  DROP_COOLDOWN: 500,
+  GRACE_MS: 1000,         // a fruit is ignored by the deadline check for this long after it appears
+  OVER_MS: 2000,          // continuous time above the deadline that ends the game
+  KEY_SPEED: 360,         // u/s
+  MAX_PARTICLES: 400,
+  SPRITE_MAX_SCALE: 4
+};
+const RENDER = { interpolate: true };
+
+/* =========================================================================
+ * PHYSICS — every tunable physics value lives here (see docs/SPEC.md 9-5)
+ * ========================================================================= */
+const PHYSICS_DEFAULTS = {
+  gravity: 2200,              // u/s^2  -> engine.gravity.scale = gravity / 1e6
+  restitutionWall: 0.30,      // fruit vs wall/floor  (pair = max(wall, fruit))
+  restitutionFruit: 0.12,     // fruit vs fruit
+  frictionWall: 0.2,          // fruit vs wall/floor  (pair = min(wall, fruit))
+  frictionFruit: 0.45,        // fruit vs fruit
+  frictionStaticWall: 0.5,    // pair = max(wall, fruit)
+  frictionStaticFruit: 0.6,
+  frictionAir: 0.002,
+  rollingDamping: 0.03,       // per step, only while touching something
+  density: 0.001,
+  massExponent: 2,            // mass ∝ r^massExponent (2 = proportional to area)
+  positionIterations: 20,
+  velocityIterations: 14,
+  slop: 0.05,
+  maxSpeed: 1400,             // u/s
+  maxAngularSpeed: 20,        // rad/s
+  mergePushMaxSpeed: 420,     // u/s
+  mergePushDuration: 200,     // ms
+  substeps: 3                 // Engine.update calls per 1/60 s step (sub-step = 1/180 s)
+};
+const PHYSICS = Object.assign({}, PHYSICS_DEFAULTS);
+
+/* =========================================================================
+ * FRUITS
+ * ========================================================================= */
+const FRUITS = [
+  null,
+  { id: "cherry",     name: "さくらんぼ",     ratio: 0.030,  color: "#E8394A", points: 1,  weight: 30 },
+  { id: "strawberry", name: "いちご",         ratio: 0.0425, color: "#F2545B", points: 3,  weight: 25 },
+  { id: "grape",      name: "ぶどう",         ratio: 0.0575, color: "#8E5CC8", points: 6,  weight: 20 },
+  { id: "dekopon",    name: "デコポン",       ratio: 0.0675, color: "#F7A23B", points: 10, weight: 15 },
+  { id: "kaki",       name: "かき",           ratio: 0.085,  color: "#F07F2A", points: 15, weight: 10 },
+  { id: "apple",      name: "りんご",         ratio: 0.105,  color: "#E53935", points: 21, weight: 0 },
+  { id: "pear",       name: "なし",           ratio: 0.125,  color: "#D8CC5C", points: 28, weight: 0 },
+  { id: "peach",      name: "もも",           ratio: 0.150,  color: "#FFB3C1", points: 36, weight: 0 },
+  { id: "pineapple",  name: "パイナップル",   ratio: 0.180,  color: "#F9D046", points: 45, weight: 0 },
+  { id: "melon",      name: "メロン",         ratio: 0.215,  color: "#B5DB6B", points: 55, weight: 0 },
+  { id: "watermelon", name: "スイカ",         ratio: 0.255,  color: "#4FAE4A", points: 66, weight: 0 }
+];
+const MAX_STAGE = 11;
+for (let i = 1; i <= MAX_STAGE; i++) FRUITS[i].r = FRUITS[i].ratio * CONFIG.W;
+const DROP_MAX_R = FRUITS[5].r;
+
+function randomDropStage() {
+  let total = 0;
+  for (let i = 1; i <= 5; i++) total += FRUITS[i].weight;
+  let v = Math.random() * total;
+  for (let i = 1; i <= 5; i++) {
+    v -= FRUITS[i].weight;
+    if (v < 0) return i;
+  }
+  return 1;
+}
+
+/* =========================================================================
+ * Utilities
+ * ========================================================================= */
+const TAU = Math.PI * 2;
+const Easing = {
+  linear: (t) => t,
+  outCubic: (t) => 1 - Math.pow(1 - t, 3),
+  outQuad: (t) => 1 - (1 - t) * (1 - t),
+  inOutQuad: (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2),
+  outBack: (t, c1) => {
+    const c = c1 === undefined ? 1.70158 : c1;
+    const u = t - 1;
+    return 1 + (c + 1) * u * u * u + c * u * u;
+  }
+};
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function rand(a, b) { return a + Math.random() * (b - a); }
+function clamp01(t) { return t < 0 ? 0 : t > 1 ? 1 : t; }
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function mixHex(hex, toHex, t) {
+  const a = hexToRgb(hex), b = hexToRgb(toHex);
+  const c = a.map((v, i) => Math.round(v + (b[i] - v) * t));
+  return "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+}
+const store = {
+  get(key, fallback) {
+    try { const v = window.localStorage.getItem(key); return v === null ? fallback : v; } catch (e) { return fallback; }
+  },
+  set(key, value) {
+    try { window.localStorage.setItem(key, String(value)); } catch (e) { /* storage unavailable */ }
+  }
+};
+
+/* =========================================================================
+ * FruitPainter — draws a fruit centered at (0,0) in logical units
+ * ========================================================================= */
+const OUT = "#5A3A22";
+const FACE = "#4A2E1C";
+const CHEEK = "rgba(255,143,163,0.55)";
+function lineWidthOf(r) { return 2 + 0.05 * r; }
+
+const FruitPainter = (function () {
+  function circlePath(ctx, x, y, r) {
+    ctx.moveTo(x + r, y);
+    ctx.arc(x, y, r, 0, TAU);
+  }
+  // stroke at 2*lw then fill: only the outer half of the stroke survives,
+  // so compound shapes get a single outer outline of width lw
+  function silhouette(ctx, build, fill, lw) {
+    ctx.beginPath();
+    build(ctx);
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.lineWidth = lw * 2;
+    ctx.strokeStyle = OUT;
+    ctx.stroke();
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  function stroked(ctx, build, width, color, lw) {
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    build(ctx);
+    ctx.strokeStyle = OUT;
+    ctx.lineWidth = width + lw * 1.2;
+    ctx.stroke();
+    ctx.beginPath();
+    build(ctx);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.stroke();
+  }
+  // pointed leaf from (x,y) towards angle a
+  function leafPath(ctx, x, y, len, wid, a) {
+    const c = Math.cos(a), s = Math.sin(a);
+    const P = (u, v) => [x + u * c - v * s, y + u * s + v * c];
+    const p0 = P(0, 0), p1 = P(len * 0.5, -wid), p2 = P(len, 0), p3 = P(len * 0.5, wid);
+    ctx.moveTo(p0[0], p0[1]);
+    ctx.quadraticCurveTo(p1[0], p1[1], p2[0], p2[1]);
+    ctx.quadraticCurveTo(p3[0], p3[1], p0[0], p0[1]);
+    ctx.closePath();
+  }
+  function leaf(ctx, x, y, len, wid, a, color, lw) {
+    silhouette(ctx, (c) => leafPath(c, x, y, len, wid, a), color, lw * 0.6);
+  }
+  function highlight(ctx, cx, cy, R) {
+    ctx.save();
+    ctx.translate(cx - 0.42 * R, cy - 0.45 * R);
+    ctx.rotate(-40 * Math.PI / 180);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 0.22 * R, 0.13 * R, 0, 0, TAU);
+    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.fill();
+    ctx.restore();
+  }
+  function face(ctx, cx, cy, R, eye, mouth, opt) {
+    const o = opt || {};
+    const fx = cx, fy = cy + 0.08 * R;
+    const ex = 0.30 * R, ey = fy - 0.02 * R;
+    const er = Math.max(1.3, 0.07 * R) * (o.eyeScale || 1);
+    const lw = Math.max(1.2, 0.045 * R);
+    ctx.save();
+    ctx.fillStyle = FACE;
+    ctx.strokeStyle = FACE;
+    ctx.lineWidth = lw;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    for (const sgn of [-1, 1]) {
+      const x = fx + sgn * ex;
+      ctx.beginPath();
+      if (eye === "dot") {
+        circlePath(ctx, x, ey, er);
+        ctx.fill();
+      } else if (eye === "glint" || eye === "sparkle") {
+        circlePath(ctx, x, ey, er * (eye === "sparkle" ? 1.15 : 1));
+        ctx.fill();
+        ctx.fillStyle = "#FFFFFF";
+        ctx.beginPath();
+        circlePath(ctx, x - er * 0.32, ey - er * 0.34, er * 0.38);
+        ctx.fill();
+        if (eye === "sparkle") {
+          ctx.beginPath();
+          circlePath(ctx, x + er * 0.38, ey + er * 0.32, er * 0.2);
+          ctx.fill();
+        }
+        ctx.fillStyle = FACE;
+      } else if (eye === "happy") {
+        ctx.arc(x, ey + er * 0.7, er * 1.35, Math.PI * 1.15, Math.PI * 1.85);
+        ctx.stroke();
+      } else if (eye === "content") {
+        ctx.arc(x, ey - er * 0.7, er * 1.35, Math.PI * 0.15, Math.PI * 0.85);
+        ctx.stroke();
+      } else if (eye === "sleepy") {
+        ctx.moveTo(x - er * 1.3, ey);
+        ctx.lineTo(x + er * 1.3, ey);
+        ctx.stroke();
+      }
+    }
+    const my = fy + 0.20 * R;
+    const mw = Math.max(0.18 * R, 3) * (o.mouthScale || 1);
+    ctx.beginPath();
+    if (mouth === "smile") {
+      ctx.arc(fx, my - mw * 0.3, mw * 0.5, Math.PI * 0.15, Math.PI * 0.85);
+      ctx.stroke();
+    } else if (mouth === "o") {
+      ctx.ellipse(fx, my, mw * 0.24, mw * 0.3, 0, 0, TAU);
+      ctx.fill();
+    } else if (mouth === "flat") {
+      ctx.moveTo(fx - mw * 0.35, my);
+      ctx.lineTo(fx + mw * 0.35, my);
+      ctx.stroke();
+    } else if (mouth === "tri") {
+      ctx.moveTo(fx - mw * 0.36, my - mw * 0.16);
+      ctx.lineTo(fx + mw * 0.36, my - mw * 0.16);
+      ctx.lineTo(fx, my + mw * 0.32);
+      ctx.closePath();
+      ctx.fillStyle = "#7A2E2E";
+      ctx.fill();
+      ctx.stroke();
+    } else if (mouth === "D" || mouth === "open" || mouth === "bigD") {
+      const mr = mouth === "open" ? mw * 0.38 : mw * 0.5;
+      const top = my - mr * 0.35;
+      const mouthPath = (c) => {
+        c.moveTo(fx - mr, top);
+        c.lineTo(fx + mr, top);
+        c.arc(fx, top, mr, 0, Math.PI);
+        c.closePath();
+      };
+      mouthPath(ctx);
+      ctx.fillStyle = "#7A2E2E";
+      ctx.fill();
+      if (mouth !== "open") {
+        ctx.save();
+        ctx.beginPath();
+        mouthPath(ctx);
+        ctx.clip();
+        ctx.beginPath();
+        ctx.ellipse(fx, top + mr * 1.0, mr * 0.62, mr * 0.45, 0, 0, TAU);
+        ctx.fillStyle = "#FF8FA3";
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.beginPath();
+      mouthPath(ctx);
+      ctx.stroke();
+    }
+    const cs = o.cheekScale || 1;
+    ctx.fillStyle = CHEEK;
+    for (const sgn of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(fx + sgn * 0.48 * R, fy + 0.16 * R, 0.13 * R * cs, 0.08 * R * cs, 0, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  function clipCircle(ctx, r) {
+    ctx.save();
+    ctx.beginPath();
+    circlePath(ctx, 0, 0, r);
+    ctx.clip();
+  }
+  // random points inside a circle, outside the face zone
+  function scatter(rng, n, maxR, avoid) {
+    const pts = [];
+    let guard = 0;
+    while (pts.length < n && guard < 2000) {
+      guard++;
+      const a = rng() * TAU, d = Math.sqrt(rng()) * maxR;
+      const x = Math.cos(a) * d, y = Math.sin(a) * d;
+      if (avoid && avoid(x, y)) continue;
+      pts.push([x, y]);
+    }
+    return pts;
+  }
+
+  const painters = {
+    1(ctx, r, lw) {
+      const F = { x: -0.18 * r, y: 0.18 * r, R: 0.74 * r };
+      const B = { x: 0.42 * r, y: -0.10 * r, R: 0.52 * r };
+      const J = { x: 0.12 * r, y: -1.20 * r };
+      stroked(ctx, (c) => {
+        c.moveTo(F.x, F.y - F.R * 0.8);
+        c.quadraticCurveTo(F.x - 0.05 * r, -0.75 * r, J.x, J.y);
+        c.moveTo(B.x, B.y - B.R * 0.7);
+        c.quadraticCurveTo(B.x + 0.02 * r, -0.8 * r, J.x, J.y);
+      }, Math.max(1.2, 0.08 * r), "#6B8E23", lw * 0.6);
+      leaf(ctx, J.x, J.y, 0.34 * r, 0.14 * r, -0.3, "#6DBE45", lw);
+      silhouette(ctx, (c) => circlePath(c, B.x, B.y, B.R - lw), "#B82235", lw);
+      silhouette(ctx, (c) => circlePath(c, F.x, F.y, F.R - lw), "#E8394A", lw);
+      highlight(ctx, F.x, F.y, F.R);
+      face(ctx, F.x, F.y, F.R, "dot", "smile");
+    },
+    2(ctx, r, lw) {
+      const rng = mulberry32(2 * 1000 + 7);
+      const rb = r - lw;
+      silhouette(ctx, (c) => circlePath(c, 0, 0, rb), "#F2545B", lw);
+      clipCircle(ctx, rb);
+      const seeds = scatter(rng, 9, rb * 0.85, (x, y) => Math.hypot(x, y - 0.08 * r) < 0.48 * r || y < -0.55 * r);
+      ctx.fillStyle = "#FFE89A";
+      const sy = Math.max(0.8, 0.055 * r);
+      for (const p of seeds) {
+        ctx.beginPath();
+        ctx.ellipse(p[0], p[1], sy * 0.62, sy, 0, 0, TAU);
+        ctx.fill();
+      }
+      ctx.restore();
+      highlight(ctx, 0, 0, r);
+      face(ctx, 0, 0, r, "dot", "o");
+      silhouette(ctx, (c) => {
+        for (let k = 0; k < 5; k++) leafPath(c, 0, -0.86 * r, 0.42 * r, 0.13 * r, (-90 + k * 72) * Math.PI / 180);
+      }, "#5DB04F", lw * 0.6);
+      stroked(ctx, (c) => { c.moveTo(0, -0.88 * r); c.lineTo(0.04 * r, -1.12 * r); }, Math.max(1, 0.07 * r), "#5DB04F", lw * 0.6);
+    },
+    3(ctx, r, lw) {
+      const rb = r - lw;
+      stroked(ctx, (c) => { c.moveTo(0, -0.8 * r); c.lineTo(0.04 * r, -1.12 * r); }, Math.max(1.2, 0.08 * r), "#7A4B2A", lw * 0.6);
+      leaf(ctx, 0.04 * r, -1.05 * r, 0.32 * r, 0.12 * r, -0.4, "#6DBE45", lw);
+      silhouette(ctx, (c) => circlePath(c, 0, 0, rb), "#8E5CC8", lw);
+      clipCircle(ctx, rb);
+      const pts = [];
+      for (let k = 0; k < 6; k++) {
+        const a = (30 + k * 60) * Math.PI / 180;
+        pts.push([Math.cos(a) * 0.56 * r, Math.sin(a) * 0.56 * r]);
+      }
+      pts.push([0, 0]);
+      pts.sort((p, q) => p[1] - q[1]);
+      for (const p of pts) {
+        ctx.beginPath();
+        circlePath(ctx, p[0], p[1], 0.32 * r);
+        ctx.fillStyle = "#9D6CD6";
+        ctx.fill();
+        ctx.lineWidth = lw * 0.35;
+        ctx.strokeStyle = "#7444AE";
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(p[0], p[1], 0.2 * r, Math.PI * 1.1, Math.PI * 1.45);
+        ctx.strokeStyle = "rgba(255,255,255,0.35)";
+        ctx.lineWidth = Math.max(0.8, 0.04 * r);
+        ctx.stroke();
+      }
+      ctx.restore();
+      highlight(ctx, 0, 0, r);
+      face(ctx, 0, 0, r, "happy", "smile");
+    },
+    4(ctx, r, lw) {
+      const rng = mulberry32(4 * 1000 + 7);
+      const rb = r - lw;
+      const shape = (c) => {
+        circlePath(c, 0, 0, rb);
+        circlePath(c, 0, -0.92 * r, 0.32 * r - lw);
+      };
+      silhouette(ctx, shape, "#F7A23B", lw);
+      ctx.save();
+      ctx.beginPath();
+      shape(ctx);
+      ctx.clip();
+      ctx.fillStyle = "#E38A25";
+      for (const p of scatter(rng, 16, r, (x, y) => Math.hypot(x, y - 0.08 * r) < 0.5 * r)) {
+        ctx.beginPath();
+        circlePath(ctx, p[0], p[1], Math.max(0.5, 0.02 * r));
+        ctx.fill();
+      }
+      ctx.restore();
+      leaf(ctx, 0.02 * r, -1.16 * r, 0.3 * r, 0.12 * r, -0.5, "#6DAA3C", lw);
+      highlight(ctx, 0, 0, r);
+      face(ctx, 0, 0, r, "glint", "tri");
+    },
+    5(ctx, r, lw) {
+      const rb = r - lw;
+      silhouette(ctx, (c) => circlePath(c, 0, 0, rb), "#F07F2A", lw);
+      highlight(ctx, 0, 0, r);
+      face(ctx, 0, 0, r, "sleepy", "smile");
+      const cy = -0.80 * r;
+      silhouette(ctx, (c) => {
+        for (const deg of [45, 135, 225, 315]) {
+          const a = deg * Math.PI / 180;
+          const x = Math.cos(a) * 0.17 * r, y = cy + Math.sin(a) * 0.17 * r;
+          c.moveTo(x + Math.cos(a) * 0.19 * r, y + Math.sin(a) * 0.19 * r);
+          c.ellipse(x, y, 0.19 * r, 0.10 * r, a, 0, TAU);
+        }
+      }, "#5E8C31", lw * 0.6);
+      silhouette(ctx, (c) => circlePath(c, 0, cy, 0.06 * r), "#7A4B2A", lw * 0.5);
+    },
+    6(ctx, r, lw) {
+      const rb = r - lw;
+      stroked(ctx, (c) => {
+        c.moveTo(0, -0.80 * r);
+        c.quadraticCurveTo(0.02 * r, -1.0 * r, 0.05 * r, -1.18 * r);
+      }, 0.09 * r, "#7A4B2A", lw * 0.6);
+      silhouette(ctx, (c) => circlePath(c, 0, 0, rb), "#E53935", lw);
+      ctx.beginPath();
+      ctx.moveTo(-0.12 * r, -0.80 * r);
+      ctx.quadraticCurveTo(0, -0.72 * r, 0.12 * r, -0.80 * r);
+      ctx.strokeStyle = "#C62828";
+      ctx.lineWidth = lw * 0.5;
+      ctx.lineCap = "round";
+      ctx.stroke();
+      leaf(ctx, 0.06 * r, -1.0 * r, 0.36 * r, 0.13 * r, -0.5, "#66BB44", lw);
+      highlight(ctx, 0, 0, r);
+      ctx.beginPath();
+      circlePath(ctx, -0.22 * r, -0.62 * r, 0.05 * r);
+      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      ctx.fill();
+      face(ctx, 0, 0, r, "dot", "D");
+    },
+    7(ctx, r, lw) {
+      const rng = mulberry32(7 * 1000 + 7);
+      const rb = r - lw;
+      stroked(ctx, (c) => { c.moveTo(0, -0.82 * r); c.quadraticCurveTo(0.0, -0.98 * r, 0.04 * r, -1.1 * r); }, 0.07 * r, "#7A4B2A", lw * 0.6);
+      silhouette(ctx, (c) => circlePath(c, 0, 0, rb), "#D8CC5C", lw);
+      clipCircle(ctx, rb);
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath();
+      circlePath(ctx, 0, 0, rb);
+      circlePath(ctx, 0, -0.22 * r, rb * 0.98);
+      ctx.fillStyle = "#C9BB4A";
+      ctx.fill("evenodd");
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "#A8923A";
+      for (const p of scatter(rng, 14, rb * 0.92, (x, y) => Math.hypot(x, y - 0.1 * r) < 0.5 * r)) {
+        ctx.beginPath();
+        circlePath(ctx, p[0], p[1], Math.max(0.6, 0.025 * r));
+        ctx.fill();
+      }
+      ctx.restore();
+      highlight(ctx, 0, 0, r);
+      face(ctx, 0, 0, r, "dot", "flat");
+    },
+    8(ctx, r, lw) {
+      const rb = r - lw;
+      leaf(ctx, -0.05 * r, -0.86 * r, 0.42 * r, 0.15 * r, -2.4, "#6DBE45", lw);
+      const g = ctx.createRadialGradient(0.25 * r, 0.2 * r, 0, 0.25 * r, 0.2 * r, 1.3 * r);
+      g.addColorStop(0, "#FFD3DC");
+      g.addColorStop(1, "#FF9FB5");
+      silhouette(ctx, (c) => circlePath(c, 0, 0, rb), g, lw);
+      clipCircle(ctx, rb);
+      ctx.beginPath();
+      ctx.moveTo(0, -0.95 * r);
+      ctx.quadraticCurveTo(-0.25 * r, -0.60 * r, -0.10 * r, -0.20 * r);
+      ctx.strokeStyle = "#E77A93";
+      ctx.lineWidth = lw * 0.6;
+      ctx.lineCap = "round";
+      ctx.stroke();
+      ctx.restore();
+      highlight(ctx, 0, 0, r);
+      face(ctx, 0, 0, r, "happy", "smile", { cheekScale: 1.3 });
+    },
+    9(ctx, r, lw) {
+      const rb = r - lw;
+      const angles = [-40, 40, -20, 20, 0];
+      const lens = [0.45, 0.45, 0.52, 0.52, 0.58];
+      for (let k = 0; k < 5; k++) {
+        const a = (-90 + angles[k]) * Math.PI / 180;
+        leaf(ctx, 0, -0.78 * r, lens[k] * r, 0.13 * r, a, k % 2 === 0 ? "#3D8B3A" : "#4FA34A", lw);
+      }
+      silhouette(ctx, (c) => circlePath(c, 0, 0, rb), "#F9D046", lw);
+      clipCircle(ctx, rb);
+      const step = 0.28 * r;
+      ctx.strokeStyle = "#D9A520";
+      ctx.lineWidth = lw * 0.4;
+      ctx.beginPath();
+      for (let k = -8; k <= 8; k++) {
+        const c0 = k * step;
+        ctx.moveTo(-r * 1.2, -r * 1.2 + c0);
+        ctx.lineTo(r * 1.2, r * 1.2 + c0);
+        ctx.moveTo(-r * 1.2, r * 1.2 + c0);
+        ctx.lineTo(r * 1.2, -r * 1.2 + c0);
+      }
+      ctx.stroke();
+      ctx.fillStyle = "#B8860B";
+      for (let i = -8; i <= 8; i++) {
+        for (let j = -8; j <= 8; j++) {
+          const x = (j * step - i * step) / 2, y = (i * step + j * step) / 2;
+          if (x * x + y * y > rb * rb) continue;
+          ctx.beginPath();
+          circlePath(ctx, x, y, Math.max(0.6, 0.025 * r));
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+      highlight(ctx, 0, 0, r);
+      face(ctx, 0, 0, r, "sparkle", "open");
+    },
+    10(ctx, r, lw) {
+      const rng = mulberry32(10 * 1000 + 7);
+      const rb = r - lw;
+      stroked(ctx, (c) => {
+        c.moveTo(0, -0.8 * r);
+        c.lineTo(0, -1.02 * r);
+        c.moveTo(-0.12 * r, -1.02 * r);
+        c.lineTo(0.12 * r, -1.02 * r);
+      }, 0.07 * r, "#8BAE44", lw * 0.6);
+      silhouette(ctx, (c) => circlePath(c, 0, 0, rb), "#B5DB6B", lw);
+      clipCircle(ctx, rb);
+      ctx.strokeStyle = "rgba(238,247,210,0.9)";
+      ctx.lineWidth = lw * 0.45;
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const base = -r + (i + 0.5) * (2 * r / 6);
+        for (let s = 0; s <= 8; s++) {
+          const u = -r + s * (2 * r / 8);
+          const v = base + (rng() - 0.5) * 0.14 * r;
+          if (s === 0) ctx.moveTo(u, v); else ctx.lineTo(u, v);
+        }
+        for (let s = 0; s <= 8; s++) {
+          const u = -r + s * (2 * r / 8);
+          const v = base + (rng() - 0.5) * 0.14 * r;
+          if (s === 0) ctx.moveTo(v, u); else ctx.lineTo(v, u);
+        }
+      }
+      ctx.stroke();
+      ctx.restore();
+      highlight(ctx, 0, 0, r);
+      face(ctx, 0, 0, r, "content", "smile");
+    },
+    11(ctx, r, lw) {
+      const rb = r - lw;
+      silhouette(ctx, (c) => circlePath(c, 0, 0, rb), "#4FAE4A", lw);
+      clipCircle(ctx, rb);
+      ctx.fillStyle = "#1F4D22";
+      const seg = 0.09 * r, amp = 0.06 * r, bw = 0.10 * r;
+      for (const k of [-0.8, -0.4, 0, 0.4, 0.8]) {
+        const cx = k * r;
+        ctx.beginPath();
+        let n = 0;
+        for (let y = -r; y <= r + seg; y += seg, n++) {
+          const off = (n % 2 === 0 ? -amp : amp);
+          if (n === 0) ctx.moveTo(cx - bw / 2 + off, y); else ctx.lineTo(cx - bw / 2 + off, y);
+        }
+        for (let y = r + seg; y >= -r - seg; y -= seg, n--) {
+          const off = (n % 2 === 0 ? -amp : amp);
+          ctx.lineTo(cx + bw / 2 + off, y);
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.beginPath();
+      circlePath(ctx, 0, 0.12 * r, 0.42 * r);
+      ctx.fillStyle = "#4FAE4A";
+      ctx.fill();
+      ctx.restore();
+      highlight(ctx, 0, 0, r);
+      face(ctx, 0, 0, r, "glint", "bigD", { eyeScale: 1.3 });
+    }
+  };
+
+  return {
+    paint(ctx, stage, r) {
+      const rr = r === undefined ? FRUITS[stage].r : r;
+      ctx.save();
+      painters[stage](ctx, rr, lineWidthOf(rr));
+      ctx.restore();
+    }
+  };
+})();
+
+/* =========================================================================
+ * SpriteCache — per-stage offscreen canvases (color + lazily built gray)
+ * ========================================================================= */
+const SpriteCache = {
+  ps: 0,
+  color: [],
+  gray: [],
+  build(ps) {
+    this.ps = Math.min(CONFIG.SPRITE_MAX_SCALE, ps);
+    this.color = [];
+    this.gray = [];
+    for (let i = 1; i <= MAX_STAGE; i++) this.color[i] = this.makeSprite(i);
+  },
+  makeSprite(stage) {
+    const r = FRUITS[stage].r;
+    const half = 1.45 * r + lineWidthOf(r);
+    const size = Math.ceil(2 * half * this.ps);
+    const c = document.createElement("canvas");
+    c.width = size;
+    c.height = size;
+    const ctx = c.getContext("2d");
+    ctx.setTransform(this.ps, 0, 0, this.ps, size / 2, size / 2);
+    FruitPainter.paint(ctx, stage);
+    return { canvas: c, half: size / 2 / this.ps };
+  },
+  getGray(stage) {
+    if (this.gray[stage]) return this.gray[stage];
+    const src = this.color[stage];
+    const c = document.createElement("canvas");
+    c.width = src.canvas.width;
+    c.height = src.canvas.height;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(src.canvas, 0, 0);
+    try {
+      const img = ctx.getImageData(0, 0, c.width, c.height);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const y = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        const v = 70 + y * 0.62;
+        d[i] = v; d[i + 1] = v; d[i + 2] = v;
+      }
+      ctx.putImageData(img, 0, 0);
+    } catch (e) { /* tainted canvas cannot happen here; keep color as fallback */ }
+    this.gray[stage] = { canvas: c, half: src.half };
+    return this.gray[stage];
+  }
+};
+
+/* =========================================================================
+ * PhysicsWorld — Matter.js used for simulation only
+ * ========================================================================= */
+const M = window.Matter;
+const { Engine, Bodies, Body, Composite, Events } = M || {};
+
+function polygonSides(r) { return r < 20 ? 20 : r < 45 ? 28 : r < 75 ? 36 : 44; }
+function velOf(body) { const v = Body.getVelocity(body); return { x: v.x * 60, y: v.y * 60 }; }   // u/s
+function setVelOf(body, vx, vy) { Body.setVelocity(body, { x: vx / 60, y: vy / 60 }); }
+function capSpeed(body, max) {
+  const v = Body.getVelocity(body);
+  const sp = Math.hypot(v.x, v.y) * 60;
+  if (sp > max) {
+    const k = max / sp;
+    Body.setVelocity(body, { x: v.x * k, y: v.y * k });
+  }
+}
+
+let fruitSeq = 0;
+class PhysicsWorld {
+  constructor(options) {
+    const o = options || {};
+    this.hooks = o.hooks || {};
+    this.mergeEnabled = o.merge !== false;
+    this.engine = Engine.create({ enableSleeping: false });
+    this.fruits = [];
+    this.mergeQueue = [];
+    this.pushZones = [];
+    this.time = 0;
+    this.stepIndex = 0;
+    this.rescueCount = 0;
+    this.mergeCount = 0;
+    const W = CONFIG.W, H = CONFIG.H;
+    const wallOpts = (label) => ({ isStatic: true, label: label });
+    this.walls = [
+      Bodies.rectangle(W / 2, H + 100, 1000, 200, wallOpts("floor")),
+      Bodies.rectangle(-100, -350, 200, 1900, wallOpts("wallL")),
+      Bodies.rectangle(W + 100, -350, 200, 1900, wallOpts("wallR"))
+    ];
+    Composite.add(this.engine.world, this.walls);
+    this.applyPhysics();
+    this._onStart = (e) => this._collide(e.pairs, true);
+    this._onActive = (e) => this._collide(e.pairs, false);
+    Events.on(this.engine, "collisionStart", this._onStart);
+    Events.on(this.engine, "collisionActive", this._onActive);
+  }
+
+  applyPhysics() {
+    const e = this.engine;
+    e.gravity.x = 0;
+    e.gravity.y = 1;
+    e.gravity.scale = PHYSICS.gravity / 1e6;
+    e.positionIterations = Math.round(PHYSICS.positionIterations);
+    e.velocityIterations = Math.round(PHYSICS.velocityIterations);
+    e.constraintIterations = 2;
+    for (const w of this.walls) {
+      w.restitution = PHYSICS.restitutionWall;
+      w.friction = PHYSICS.frictionWall;
+      w.frictionStatic = PHYSICS.frictionStaticWall;
+      w.slop = PHYSICS.slop;
+    }
+    for (const f of this.fruits) this._applyFruitProps(f);
+  }
+
+  _applyFruitProps(f) {
+    const b = f.body;
+    b.restitution = PHYSICS.restitutionFruit;
+    b.friction = PHYSICS.frictionFruit;
+    b.frictionStatic = PHYSICS.frictionStaticFruit;
+    b.frictionAir = PHYSICS.frictionAir;
+    b.slop = PHYSICS.slop;
+    const base = PHYSICS.density * b.area;
+    const mass = PHYSICS.massExponent === 2 ? base : base * Math.pow(f.r / FRUITS[1].r, PHYSICS.massExponent - 2);
+    Body.setMass(b, mass);
+    b.density = PHYSICS.density;
+  }
+
+  addFruit(stage, x, y, vx, vy) {
+    const r = FRUITS[stage].r;
+    const n = polygonSides(r);
+    const body = Bodies.polygon(x, y, n, r / Math.cos(Math.PI / n), { label: "fruit" });
+    const f = {
+      id: ++fruitSeq, stage: stage, r: r, body: body,
+      spawnTime: this.time, merging: false, removed: false,
+      px: x, py: y, pa: 0, touch: -1, lastDust: -1e9, bornRt: null, grayStart: null
+    };
+    body.plugin.fruit = f;
+    this._applyFruitProps(f);
+    Composite.add(this.engine.world, body);
+    if (vx || vy) setVelOf(body, vx || 0, vy || 0);
+    this.fruits.push(f);
+    return f;
+  }
+
+  removeFruit(f) {
+    if (f.removed) return;
+    f.removed = true;
+    Composite.remove(this.engine.world, f.body);
+    const i = this.fruits.indexOf(f);
+    if (i >= 0) this.fruits.splice(i, 1);
+  }
+
+  _collide(pairs, isStart) {
+    for (let i = 0; i < pairs.length; i++) {
+      const pair = pairs[i];
+      const a = pair.bodyA.parent, b = pair.bodyB.parent;
+      const fa = a.plugin.fruit, fb = b.plugin.fruit;
+      if (fa) fa.touch = this.stepIndex;
+      if (fb) fb.touch = this.stepIndex;
+      if (isStart && (fa || fb)) {
+        const fr = fa || fb;
+        const va = Body.getVelocity(a), vb = Body.getVelocity(b);
+        const n = pair.collision.normal;
+        const rel = Math.abs((va.x - vb.x) * n.x + (va.y - vb.y) * n.y) * 60;
+        const sup = pair.collision.supports;
+        let sx = 0, sy = 0;
+        for (let k = 0; k < sup.length; k++) { sx += sup[k].x; sy += sup[k].y; }
+        const cnt = sup.length || 1;
+        const other = fa ? b : a;
+        if (this.hooks.onImpact) this.hooks.onImpact(fr, sx / cnt, sy / cnt, rel, !!(fa && fb), n);
+        if (!(fa && fb) && this.hooks.onWallContact) this.hooks.onWallContact(fr, other.label);
+      }
+      if (!this.mergeEnabled || !fa || !fb) continue;
+      if (fa.stage !== fb.stage || fa.merging || fb.merging || fa.removed || fb.removed) continue;
+      fa.merging = true;
+      fb.merging = true;
+      this.mergeQueue.push([fa, fb]);
+    }
+  }
+
+  _processMerges() {
+    if (this.mergeQueue.length === 0) return;
+    const queue = this.mergeQueue;
+    this.mergeQueue = [];
+    for (const [fa, fb] of queue) {
+      if (fa.removed || fb.removed) continue;
+      const pa = fa.body.position, pb = fb.body.position;
+      const va = velOf(fa.body), vb = velOf(fb.body);
+      let mx = (pa.x + pb.x) / 2, my = (pa.y + pb.y) / 2;
+      const info = {
+        stage: fa.stage,
+        a: { x: pa.x, y: pa.y, angle: fa.body.angle },
+        b: { x: pb.x, y: pb.y, angle: fb.body.angle },
+        x: mx, y: my, fruit: null
+      };
+      this.removeFruit(fa);
+      this.removeFruit(fb);
+      this.mergeCount++;
+      if (fa.stage < MAX_STAGE) {
+        const ns = fa.stage + 1;
+        const r = FRUITS[ns].r;
+        mx = clamp(mx, r, CONFIG.W - r);
+        my = Math.min(my, CONFIG.H - r);
+        let vx = (va.x + vb.x) / 2, vy = (va.y + vb.y) / 2;
+        const sp = Math.hypot(vx, vy);
+        if (sp > PHYSICS.mergePushMaxSpeed) { vx *= PHYSICS.mergePushMaxSpeed / sp; vy *= PHYSICS.mergePushMaxSpeed / sp; }
+        const nf = this.addFruit(ns, mx, my, vx, vy);
+        nf.spawnTime = this.time;
+        info.x = mx;
+        info.y = my;
+        info.fruit = nf;
+        this.pushZones.push({ fruit: nf, until: this.time + PHYSICS.mergePushDuration });
+      }
+      if (this.hooks.onMerge) this.hooks.onMerge(info);
+    }
+  }
+
+  _postSolve(sub) {
+    const maxSpeed = PHYSICS.maxSpeed;
+    const maxAng = PHYSICS.maxAngularSpeed / 60;
+    const damp = 1 - PHYSICS.rollingDamping / sub;
+    for (let i = 0; i < this.fruits.length; i++) {
+      const f = this.fruits[i], b = f.body;
+      capSpeed(b, maxSpeed);
+      let av = Body.getAngularVelocity(b);
+      if (f.touch === this.stepIndex) av *= damp;
+      if (av > maxAng) av = maxAng; else if (av < -maxAng) av = -maxAng;
+      Body.setAngularVelocity(b, av);
+    }
+    if (this.pushZones.length) {
+      const keep = [];
+      for (const z of this.pushZones) {
+        if (z.fruit.removed || this.time > z.until) continue;
+        keep.push(z);
+        const zp = z.fruit.body.position;
+        for (const f of this.fruits) {
+          const p = f.body.position;
+          const lim = f.r + z.fruit.r + 2;
+          if (f === z.fruit || (Math.abs(p.x - zp.x) < lim && Math.abs(p.y - zp.y) < lim && Math.hypot(p.x - zp.x, p.y - zp.y) < lim)) {
+            capSpeed(f.body, PHYSICS.mergePushMaxSpeed);
+          }
+        }
+      }
+      this.pushZones = keep;
+    }
+    for (const f of this.fruits) {
+      const p = f.body.position;
+      if (p.x < -20 || p.x > CONFIG.W + 20 || p.y > CONFIG.H + 20) {
+        Body.setPosition(f.body, { x: clamp(p.x, f.r, CONFIG.W - f.r), y: Math.min(p.y, CONFIG.H - f.r) });
+        Body.setVelocity(f.body, { x: 0, y: 0 });
+        Body.setAngularVelocity(f.body, 0);
+        this.rescueCount++;
+      }
+    }
+  }
+
+  // one fixed 1/60 s step
+  step() {
+    for (let i = 0; i < this.fruits.length; i++) {
+      const f = this.fruits[i];
+      f.px = f.body.position.x;
+      f.py = f.body.position.y;
+      f.pa = f.body.angle;
+    }
+    const sub = Math.max(1, Math.round(PHYSICS.substeps));
+    const dt = CONFIG.STEP_MS / sub;
+    for (let s = 0; s < sub; s++) {
+      this.stepIndex++;
+      Engine.update(this.engine, dt);
+      this._processMerges();
+      this._postSolve(sub);
+    }
+    this.time += CONFIG.STEP_MS;
+  }
+
+  destroy() {
+    Events.off(this.engine);
+    Composite.clear(this.engine.world, false);
+    Engine.clear(this.engine);
+    this.fruits.length = 0;
+    this.mergeQueue.length = 0;
+    this.pushZones.length = 0;
+    this.walls.length = 0;
+    this.hooks = {};
+    this.engine = null;
+  }
+}
+
+/* =========================================================================
+ * Sound — Web Audio synthesis (silent until the first user gesture)
+ * ========================================================================= */
+const Sound = {
+  ctx: null,
+  master: null,
+  noise: null,
+  muted: store.get("fruitdrop.muted", "0") === "1",
+  lastMerge: -1,
+  unlock() {
+    try {
+      if (!this.ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        const ctx = new AC();
+        const comp = ctx.createDynamicsCompressor();
+        comp.threshold.value = -18;
+        comp.ratio.value = 4;
+        const master = ctx.createGain();
+        master.gain.value = this.muted ? 0 : 0.6;
+        master.connect(comp);
+        comp.connect(ctx.destination);
+        const len = Math.floor(ctx.sampleRate * 0.5);
+        const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+        this.ctx = ctx;
+        this.master = master;
+        this.noise = buf;
+      }
+      if (this.ctx.state === "suspended") this.ctx.resume();
+    } catch (e) { this.ctx = null; }
+  },
+  setMuted(m) {
+    this.muted = m;
+    store.set("fruitdrop.muted", m ? "1" : "0");
+    if (this.ctx) {
+      const t = this.ctx.currentTime;
+      this.master.gain.cancelScheduledValues(t);
+      this.master.gain.setValueAtTime(this.master.gain.value, t);
+      this.master.gain.linearRampToValueAtTime(m ? 0 : 0.6, t + 0.03);
+    }
+  },
+  ready() { return !!this.ctx && this.ctx.state !== "closed"; },
+  tone(o) {
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime + (o.delay || 0);
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = o.type;
+    osc.frequency.setValueAtTime(o.f0, t0);
+    if (o.f1) osc.frequency.exponentialRampToValueAtTime(o.f1, t0 + o.sweep);
+    if (o.detune) osc.detune.value = o.detune;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(o.gain, t0 + o.a);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.a + o.d);
+    osc.connect(g);
+    g.connect(this.master);
+    if (o.vibrato) {
+      const lfo = ctx.createOscillator();
+      const lg = ctx.createGain();
+      lfo.frequency.value = 5;
+      lg.gain.value = 8;
+      lfo.connect(lg);
+      lg.connect(osc.detune);
+      lfo.start(t0);
+      lfo.stop(t0 + o.a + o.d + 0.05);
+    }
+    osc.start(t0);
+    osc.stop(t0 + o.a + o.d + 0.05);
+  },
+  noiseBurst(gain, dur, freq) {
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = freq;
+    bp.Q.value = 1.2;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(gain, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(bp);
+    bp.connect(g);
+    g.connect(this.master);
+    src.start(t0);
+    src.stop(t0 + dur + 0.02);
+  },
+  drop() {
+    if (!this.ready()) return;
+    this.tone({ type: "sine", f0: 520, f1: 300, sweep: 0.09, gain: 0.25, a: 0.005, d: 0.11 });
+  },
+  merge(stage) {
+    if (!this.ready()) return;
+    const now = this.ctx.currentTime;
+    if (now - this.lastMerge < 0.04) return;
+    this.lastMerge = now;
+    const f = 300 * Math.pow(1.12, stage - 1);
+    this.tone({ type: "triangle", f0: f, f1: f * 1.6, sweep: 0.08, gain: 0.22, a: 0.004, d: 0.18 });
+    this.noiseBurst(0.08, 0.04, 2000);
+  },
+  watermelon() {
+    if (!this.ready()) return;
+    [523, 659, 784, 1047].forEach((f, i) => {
+      this.tone({ type: "triangle", f0: f, gain: 0.18, a: 0.005, d: 0.26, delay: i * 0.09 });
+    });
+    for (const dt of [-6, -2, 2, 6]) {
+      this.tone({ type: "sine", f0: 2093, gain: 0.04, a: 0.01, d: 0.6, detune: dt, delay: 0.27 });
+    }
+  },
+  gameOver() {
+    if (!this.ready()) return;
+    [392, 330, 262].forEach((f, i) => {
+      this.tone({ type: "triangle", f0: f, gain: 0.2, a: 0.01, d: i === 2 ? 0.7 : 0.26, delay: i * 0.22, vibrato: i === 2 });
+    });
+  }
+};
+
+/* =========================================================================
+ * Effects — particles, popups, ripples, shake, flash, confetti, dust
+ * ========================================================================= */
+const Effects = {
+  particles: [],
+  dust: [],
+  popups: [],
+  ripples: [],
+  confetti: [],
+  vanish: [],
+  shakes: [],
+  flash: null,
+  reset() {
+    this.particles.length = 0;
+    this.dust.length = 0;
+    this.popups.length = 0;
+    this.ripples.length = 0;
+    this.confetti.length = 0;
+    this.vanish.length = 0;
+    this.shakes.length = 0;
+    this.flash = null;
+  },
+  count() {
+    return this.particles.length + this.dust.length + this.popups.length + this.ripples.length + this.confetti.length + this.vanish.length;
+  },
+  addParticle(p) {
+    if (this.particles.length >= CONFIG.MAX_PARTICLES) this.particles.shift();
+    this.particles.push(p);
+  },
+  juice(x, y, stage, R, mult, speedMult) {
+    const n = Math.round((6 + 2 * stage) * mult);
+    const base = FRUITS[stage].color;
+    const light = mixHex(base, "#FFFFFF", 0.35);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * TAU;
+      const sp = (rand(140, 280) + 2 * R) * speedMult;
+      this.addParticle({
+        x: x + Math.cos(a) * R * 0.5, y: y + Math.sin(a) * R * 0.5,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 80,
+        r: rand(2.0, 3.5) + 0.04 * R,
+        color: i % 2 === 0 ? base : light,
+        age: 0, life: rand(450, 700)
+      });
+    }
+  },
+  popup(x, y, points, stage, big) {
+    this.popups.push({ x: x, y: y, text: "+" + points, size: (16 + 1.4 * stage) * (big ? 1.5 : 1), age: 0, life: big ? 1100 : 800 });
+  },
+  ripple(x, y, R, delay, toMul) {
+    this.ripples.push({ x: x, y: y, R: R, age: -(delay || 0), life: 350, to: toMul || 1.8 });
+  },
+  shake(amp, dur) { this.shakes.push({ amp: amp, dur: dur, age: 0 }); },
+  doFlash() { this.flash = { age: 0, life: 300 }; },
+  confettiBurst(x, y) {
+    const colors = ["#FF6F91", "#FFC94A", "#6FD08C", "#5BC0EB", "#B28DFF"];
+    for (let i = 0; i < 24; i++) {
+      const a = (-90 + rand(-60, 60)) * Math.PI / 180;
+      const sp = rand(300, 520);
+      this.confetti.push({
+        x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        rot: Math.random() * TAU, vr: rand(-8, 8),
+        color: colors[(Math.random() * colors.length) | 0], age: 0, life: 1200
+      });
+    }
+  },
+  dustPuff(x, y, speed, normal) {
+    const n = speed > 900 ? 6 : 4;
+    const tx = normal ? -normal.y : 1, ty = normal ? normal.x : 0;
+    for (let i = 0; i < n; i++) {
+      const side = i % 2 === 0 ? 1 : -1;
+      const sp = rand(20, 50) * side;
+      this.dust.push({ x: x, y: y, vx: tx * sp, vy: ty * sp - 30, r: rand(2, 4), age: 0, life: 300 });
+    }
+  },
+  addVanish(stage, x, y, angle) { this.vanish.push({ stage: stage, x: x, y: y, angle: angle, age: 0, life: 180 }); },
+
+  update(dt) {
+    const s = dt / 1000;
+    const air = Math.pow(0.90, s);
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.age += dt;
+      if (p.age >= p.life) { this.particles.splice(i, 1); continue; }
+      p.vy += 900 * s;
+      p.vx *= air;
+      p.vy *= air;
+      p.x += p.vx * s;
+      p.y += p.vy * s;
+    }
+    for (let i = this.dust.length - 1; i >= 0; i--) {
+      const p = this.dust[i];
+      p.age += dt;
+      if (p.age >= p.life) { this.dust.splice(i, 1); continue; }
+      p.x += p.vx * s;
+      p.y += p.vy * s;
+    }
+    for (let i = this.confetti.length - 1; i >= 0; i--) {
+      const p = this.confetti[i];
+      p.age += dt;
+      if (p.age >= p.life) { this.confetti.splice(i, 1); continue; }
+      p.vy += 600 * s;
+      p.vx *= Math.pow(0.6, s);
+      p.x += p.vx * s;
+      p.y += p.vy * s;
+      p.rot += p.vr * s;
+    }
+    const ageOut = (arr) => {
+      for (let i = arr.length - 1; i >= 0; i--) {
+        arr[i].age += dt;
+        if (arr[i].age >= arr[i].life) arr.splice(i, 1);
+      }
+    };
+    ageOut(this.popups);
+    ageOut(this.ripples);
+    ageOut(this.vanish);
+    for (let i = this.shakes.length - 1; i >= 0; i--) {
+      this.shakes[i].age += dt;
+      if (this.shakes[i].age >= this.shakes[i].dur) this.shakes.splice(i, 1);
+    }
+    if (this.flash) {
+      this.flash.age += dt;
+      if (this.flash.age >= this.flash.life) this.flash = null;
+    }
+  },
+  shakeOffset(rt) {
+    let amp = 0;
+    for (const sh of this.shakes) {
+      const a = sh.amp * Math.pow(1 - sh.age / sh.dur, 2);
+      if (a > amp) amp = a;
+    }
+    if (amp <= 0) return { x: 0, y: 0 };
+    const t = rt / 1000;
+    return { x: amp * Math.sin(TAU * 28 * t), y: amp * Math.cos(TAU * 28 * t * 1.3) };
+  },
+  drawLow(ctx) {
+    for (const p of this.particles) {
+      const t = p.age / p.life;
+      const alpha = t < 0.4 ? 1 : 1 - Easing.outQuad((t - 0.4) / 0.6);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * (1 - 0.5 * t), 0, TAU);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#E8D8B8";
+    for (const p of this.dust) {
+      const t = p.age / p.life;
+      ctx.globalAlpha = 0.5 * (1 - t);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * (1 + 0.6 * Easing.outCubic(t)), 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  },
+  drawHigh(ctx, font) {
+    for (const v of this.vanish) {
+      const t = v.age / v.life;
+      const sp = SpriteCache.color[v.stage];
+      ctx.save();
+      ctx.globalAlpha = 1 - t;
+      ctx.translate(v.x, v.y);
+      ctx.rotate(v.angle);
+      ctx.scale(1 + 0.2 * t, 1 + 0.2 * t);
+      ctx.drawImage(sp.canvas, -sp.half, -sp.half, sp.half * 2, sp.half * 2);
+      ctx.restore();
+    }
+    for (const r of this.ripples) {
+      if (r.age < 0) continue;
+      const t = r.age / r.life;
+      const rad = r.R * (0.9 + (r.to - 0.9) * Easing.outCubic(t));
+      ctx.globalAlpha = 0.9 * (1 - Easing.outQuad(t));
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.lineWidth = Math.max(0.01, 6 * (1 - t));
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, rad, 0, TAU);
+      ctx.stroke();
+    }
+    for (const p of this.confetti) {
+      const t = p.age / p.life;
+      ctx.globalAlpha = p.age > p.life - 400 ? (p.life - p.age) / 400 : 1;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.scale(1, Math.cos(p.rot * 1.7));
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-2, -3.5, 4, 7);
+      ctx.restore();
+      void t;
+    }
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    for (const p of this.popups) {
+      const t = p.age / p.life;
+      const rise = 40 * Easing.outCubic(t);
+      const sc = p.age < 120 ? 0.5 + 0.5 * Easing.outBack(p.age / 120) : 1;
+      const fadeStart = p.life * 0.375;
+      const alpha = p.age < fadeStart ? 1 : 1 - Easing.inOutQuad((p.age - fadeStart) / (p.life - fadeStart));
+      ctx.globalAlpha = clamp01(alpha);
+      ctx.save();
+      ctx.translate(p.x, p.y - rise);
+      ctx.scale(sc, sc);
+      ctx.font = "900 " + p.size.toFixed(1) + "px " + font;
+      ctx.strokeStyle = OUT;
+      ctx.lineWidth = 4;
+      ctx.strokeText(p.text, 0, 0);
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillText(p.text, 0, 0);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+};
+
+/* =========================================================================
+ * DOM references
+ * ========================================================================= */
+const $ = (id) => document.getElementById(id);
+const appEl = $("app");
+const stageEl = $("stage");
+const fieldEl = $("field");
+const canvas = $("game");
+const ctx = canvas.getContext("2d");
+const nextCanvas = $("nextCanvas");
+const ringCanvas = $("ringCanvas");
+const scoreEl = $("score");
+const bestEl = $("best");
+const resultEl = $("result");
+const startOverlay = $("startOverlay");
+const muteBtn = $("muteBtn");
+const FONT = getComputedStyle(document.documentElement).getPropertyValue("--font").trim() || "sans-serif";
+const DEBUG = /(?:^|[?&])debug=1(?:&|$)/.test(location.search);
+
+/* =========================================================================
+ * Layout — scaling, devicePixelRatio, cached container layers
+ * ========================================================================= */
+const Layout = {
+  s: 1,
+  dpr: 1,
+  ps: 1,
+  portrait: false,
+  inner: null,
+  frame: null,
+  resizeTimer: 0,
+  apply() {
+    const portrait = window.innerWidth / window.innerHeight < 0.9;
+    this.portrait = portrait;
+    appEl.classList.toggle("portrait", portrait);
+    appEl.classList.toggle("landscape", !portrait);
+    const rect = stageEl.getBoundingClientRect();
+    const V = CONFIG.VIEW;
+    const s = Math.max(0.1, Math.min(rect.width / V.w, rect.height / V.h));
+    const dpr = window.devicePixelRatio || 1;
+    this.s = s;
+    this.dpr = dpr;
+    const pw = Math.max(1, Math.round(V.w * s * dpr));
+    const ph = Math.max(1, Math.round(V.h * s * dpr));
+    this.ps = pw / V.w;
+    canvas.width = pw;
+    canvas.height = ph;
+    fieldEl.style.width = (pw / dpr) + "px";
+    fieldEl.style.height = (ph / dpr) + "px";
+    SpriteCache.build(this.ps);
+    this.buildContainer();
+    UI.resizeSide();
+    watchDpr();
+  },
+  schedule() {
+    clearTimeout(this.resizeTimer);
+    this.resizeTimer = setTimeout(() => this.apply(), 100);
+  },
+  baseTransform(c, ox, oy) {
+    const ps = this.ps;
+    c.setTransform(ps, 0, 0, ps, (-CONFIG.VIEW.x + (ox || 0)) * ps, (-CONFIG.VIEW.y + (oy || 0)) * ps);
+  },
+  makeLayer() {
+    const c = document.createElement("canvas");
+    c.width = canvas.width;
+    c.height = canvas.height;
+    const g = c.getContext("2d");
+    this.baseTransform(g);
+    return { c: c, g: g };
+  },
+  buildContainer() {
+    const W = CONFIG.W, H = CONFIG.H, T = CONFIG.T;
+    const rng = mulberry32(9917);
+    const inner = this.makeLayer();
+    let g = inner.g;
+    const innerPath = (c, top) => {
+      const ri = 10;
+      c.moveTo(0, top);
+      c.lineTo(0, H - ri);
+      c.quadraticCurveTo(0, H, ri, H);
+      c.lineTo(W - ri, H);
+      c.quadraticCurveTo(W, H, W, H - ri);
+      c.lineTo(W, top);
+      c.closePath();
+    };
+    g.beginPath();
+    innerPath(g, -4);
+    g.fillStyle = "#FFF8E8";
+    g.fill();
+    g.save();
+    g.beginPath();
+    innerPath(g, -4);
+    g.clip();
+    let lg = g.createLinearGradient(0, 0, 14, 0);
+    lg.addColorStop(0, "rgba(110,70,30,0.14)");
+    lg.addColorStop(1, "rgba(110,70,30,0)");
+    g.fillStyle = lg;
+    g.fillRect(0, -4, 14, H + 4);
+    lg = g.createLinearGradient(W, 0, W - 14, 0);
+    lg.addColorStop(0, "rgba(110,70,30,0.14)");
+    lg.addColorStop(1, "rgba(110,70,30,0)");
+    g.fillStyle = lg;
+    g.fillRect(W - 14, -4, 14, H + 4);
+    lg = g.createLinearGradient(0, H, 0, H - 14);
+    lg.addColorStop(0, "rgba(110,70,30,0.14)");
+    lg.addColorStop(1, "rgba(110,70,30,0)");
+    g.fillStyle = lg;
+    g.fillRect(0, H - 14, W, 14);
+    g.fillStyle = "rgba(110,70,30,0.05)";
+    g.fillRect(0, H - 30, W, 30);
+    g.restore();
+    this.inner = inner.c;
+
+    const frame = this.makeLayer();
+    g = frame.g;
+    const ro = 30, ri = 10, topY = -4;
+    const framePath = (c, dy) => {
+      c.moveTo(-T, topY + dy);
+      c.lineTo(-T, H + T - ro + dy);
+      c.quadraticCurveTo(-T, H + T + dy, -T + ro, H + T + dy);
+      c.lineTo(W + T - ro, H + T + dy);
+      c.quadraticCurveTo(W + T, H + T + dy, W + T, H + T - ro + dy);
+      c.lineTo(W + T, topY + dy);
+      c.lineTo(W, topY + dy);
+      c.lineTo(W, H - ri + dy);
+      c.quadraticCurveTo(W, H + dy, W - ri, H + dy);
+      c.lineTo(ri, H + dy);
+      c.quadraticCurveTo(0, H + dy, 0, H - ri + dy);
+      c.lineTo(0, topY + dy);
+      c.closePath();
+    };
+    g.beginPath();
+    framePath(g, 6);
+    g.arc(-T / 2, topY + 6, T / 2, 0, TAU);
+    g.moveTo(W + T, topY + 6);
+    g.arc(W + T / 2, topY + 6, T / 2, 0, TAU);
+    g.fillStyle = "rgba(110,70,30,0.18)";
+    g.fill();
+    const wood = g.createLinearGradient(0, topY, 0, H + T);
+    wood.addColorStop(0, "#F0C27B");
+    wood.addColorStop(1, "#E2A95E");
+    g.beginPath();
+    framePath(g, 0);
+    g.fillStyle = wood;
+    g.fill();
+    for (const cx of [-T / 2, W + T / 2]) {
+      g.beginPath();
+      g.arc(cx, topY, T / 2, Math.PI, 0);
+      g.closePath();
+      g.fillStyle = "#F0C27B";
+      g.fill();
+    }
+    g.save();
+    g.beginPath();
+    framePath(g, 0);
+    g.clip();
+    g.strokeStyle = "rgba(122,78,38,0.15)";
+    g.lineWidth = 1.5;
+    for (let k = 0; k < 3; k++) {
+      const off = 3 + k * 5;
+      g.beginPath();
+      g.moveTo(-off, topY);
+      g.quadraticCurveTo(-off + (rng() - 0.5) * 4, H / 2, -off, H + T);
+      g.moveTo(W + off, topY);
+      g.quadraticCurveTo(W + off + (rng() - 0.5) * 4, H / 2, W + off, H + T);
+      const yy = H + 3 + k * 5;
+      g.moveTo(-T, yy);
+      g.quadraticCurveTo(W / 2, yy + (rng() - 0.5) * 4, W + T, yy);
+      g.stroke();
+    }
+    g.restore();
+    g.beginPath();
+    g.moveTo(-3, topY);
+    g.lineTo(-3, H - ri + 2);
+    g.quadraticCurveTo(-3, H + 3, ri - 2, H + 3);
+    g.lineTo(W - ri + 2, H + 3);
+    g.quadraticCurveTo(W + 3, H + 3, W + 3, H - ri + 2);
+    g.lineTo(W + 3, topY);
+    g.strokeStyle = "#FADDA8";
+    g.lineWidth = 2;
+    g.lineCap = "round";
+    g.stroke();
+    g.beginPath();
+    framePath(g, 0);
+    g.lineJoin = "round";
+    g.strokeStyle = "#7A4E26";
+    g.lineWidth = 3;
+    g.stroke();
+    for (const cx of [-T / 2, W + T / 2]) {
+      g.beginPath();
+      g.arc(cx, topY, T / 2, Math.PI, 0);
+      g.strokeStyle = "#7A4E26";
+      g.lineWidth = 3;
+      g.stroke();
+    }
+    this.frame = frame.c;
+  }
+};
+let dprQuery = null;
+function watchDpr() {
+  if (dprQuery) dprQuery.removeEventListener("change", onDprChange);
+  if (!window.matchMedia) return;
+  dprQuery = window.matchMedia("(resolution: " + (window.devicePixelRatio || 1) + "dppx)");
+  if (dprQuery.addEventListener) dprQuery.addEventListener("change", onDprChange);
+}
+function onDprChange() { Layout.schedule(); }
+
+/* =========================================================================
+ * UI — score count-up, NEXT, evolution ring, result panel
+ * ========================================================================= */
+const UI = {
+  shown: 0,
+  from: 0,
+  to: 0,
+  animStart: 0,
+  shownBest: -1,
+  nextChangedAt: -1e9,
+  nextStage: 1,
+  ringDirty: true,
+  setScore(target, rt) {
+    this.from = this.shown;
+    this.to = target;
+    this.animStart = rt;
+    scoreEl.classList.add("bump");
+    void scoreEl.offsetWidth;
+    scoreEl.classList.remove("bump");
+  },
+  resetScore() {
+    this.shown = 0;
+    this.from = 0;
+    this.to = 0;
+    scoreEl.textContent = "0";
+  },
+  update(rt) {
+    if (this.shown !== this.to) {
+      const t = clamp01((rt - this.animStart) / 400);
+      const v = Math.round(this.from + (this.to - this.from) * Easing.outCubic(t));
+      if (v !== this.shown) {
+        this.shown = v;
+        scoreEl.textContent = String(v);
+      }
+      if (t >= 1 && this.shown !== this.to) {
+        this.shown = this.to;
+        scoreEl.textContent = String(this.to);
+      }
+    }
+    if (Game.best !== this.shownBest) {
+      this.shownBest = Game.best;
+      bestEl.textContent = String(Game.best);
+    }
+    if (rt - this.nextChangedAt < 260 || this.nextDirty) {
+      this.drawNext(rt);
+      this.nextDirty = rt - this.nextChangedAt < 260;
+    }
+    if (this.ringDirty) {
+      this.drawRing();
+      this.ringDirty = false;
+    }
+  },
+  setNext(stage, rt) {
+    this.nextStage = stage;
+    this.nextChangedAt = rt;
+    this.nextDirty = true;
+  },
+  resizeCanvas(c) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, c.clientWidth), h = Math.max(1, c.clientHeight);
+    c.width = Math.round(w * dpr);
+    c.height = Math.round(h * dpr);
+    return { w: w, h: h, dpr: dpr };
+  },
+  resizeSide() {
+    this.nextGeom = this.resizeCanvas(nextCanvas);
+    this.ringGeom = this.resizeCanvas(ringCanvas);
+    this.nextDirty = true;
+    this.ringDirty = true;
+  },
+  drawNext(rt) {
+    const geo = this.nextGeom;
+    if (!geo) return;
+    const g = nextCanvas.getContext("2d");
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
+    const t = clamp01((rt - this.nextChangedAt) / 200);
+    const sc = 0.6 + 0.4 * Easing.outBack(t);
+    const k = (geo.w * 0.8 / 2) / FRUITS[5].r;
+    const r = FRUITS[this.nextStage].r;
+    const scale = k * sc * geo.dpr;
+    g.setTransform(scale, 0, 0, scale, geo.w * geo.dpr / 2, geo.h * geo.dpr / 2 + r * 0.08 * k * geo.dpr);
+    FruitPainter.paint(g, this.nextStage);
+  },
+  drawRing() {
+    const geo = this.ringGeom;
+    if (!geo) return;
+    const g = ringCanvas.getContext("2d");
+    const d = geo.dpr, w = geo.w;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, ringCanvas.width, ringCanvas.height);
+    g.setTransform(d, 0, 0, d, 0, 0);
+    const cx = w / 2, cy = geo.h / 2, R = w * 0.36;
+    g.beginPath();
+    g.arc(cx, cy, R, 0, TAU);
+    g.strokeStyle = "rgba(138,90,43,0.25)";
+    g.lineWidth = 2;
+    g.stroke();
+    g.fillStyle = "rgba(138,90,43,0.45)";
+    for (let k = 0; k < 3; k++) {
+      const a = (-90 + 16 + k * 120 + 32.7 * 1.5) * Math.PI / 180;
+      const x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R;
+      const tx = -Math.sin(a), ty = Math.cos(a);
+      const nx = Math.cos(a), ny = Math.sin(a);
+      const sz = Math.max(3, w * 0.025);
+      g.beginPath();
+      g.moveTo(x + tx * sz, y + ty * sz);
+      g.lineTo(x - tx * sz + nx * sz * 0.8, y - ty * sz + ny * sz * 0.8);
+      g.lineTo(x - tx * sz - nx * sz * 0.8, y - ty * sz - ny * sz * 0.8);
+      g.closePath();
+      g.fill();
+    }
+    for (let i = 1; i <= MAX_STAGE; i++) {
+      const a = (-90 + (i - 1) * 360 / MAX_STAGE) * Math.PI / 180;
+      const x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R;
+      const disp = w * (0.045 + 0.050 * (i - 1) / 10);
+      const sc = disp / FRUITS[i].r;
+      g.save();
+      g.globalAlpha = (i <= 5 || Game.reached[i]) ? 1 : 0.35;
+      g.translate(x, y);
+      g.scale(sc, sc);
+      FruitPainter.paint(g, i);
+      g.restore();
+    }
+  },
+  showResult(isRecord) {
+    $("resultScore").textContent = String(Game.score);
+    $("resultBest").textContent = String(Game.best);
+    const nr = $("newRecord");
+    nr.classList.remove("on");
+    resultEl.classList.remove("hidden");
+    void resultEl.offsetWidth;
+    resultEl.classList.add("show");
+    if (isRecord) { void nr.offsetWidth; nr.classList.add("on"); }
+    setTimeout(() => { try { $("retryBtn").focus({ preventScroll: true }); } catch (e) { /* ignore */ } }, 0);
+  },
+  hideResult() {
+    resultEl.classList.remove("show");
+    resultEl.classList.add("hidden");
+    $("newRecord").classList.remove("on");
+  }
+};
+
+/* =========================================================================
+ * Game — states, dropping, scoring, game over, retry
+ * ========================================================================= */
+let rt = 0;            // real-time clock (ms) used by effects
+const Game = {
+  state: "ready",
+  world: null,
+  score: 0,
+  best: parseInt(store.get("fruitdrop.highscore", "0"), 10) || 0,
+  bestAtStart: 0,
+  current: 1,
+  next: 1,
+  dropX: CONFIG.W / 2,
+  cooldownUntil: 0,
+  waitingVisibleAt: 0,
+  wasCooling: false,
+  overTimer: 0,
+  overState: false,
+  nearState: false,
+  reached: [],
+  forcedStage: 0,
+  noGameOver: false,
+  go: null,
+  init() {
+    this.newWorld();
+    this.current = randomDropStage();
+    this.next = randomDropStage();
+    UI.setNext(this.next, rt);
+  },
+  newWorld() {
+    if (this.world) this.world.destroy();
+    this.world = new PhysicsWorld({
+      hooks: {
+        onMerge: (info) => this.onMerge(info),
+        onImpact: (f, x, y, speed, both, normal) => this.onImpact(f, x, y, speed, normal)
+      }
+    });
+  },
+  start() {
+    if (this.state !== "ready") return;
+    startOverlay.classList.add("hidden");
+    this.state = "playing";
+    this.bestAtStart = this.best;
+  },
+  retry() {
+    this.newWorld();
+    Effects.reset();
+    this.score = 0;
+    UI.resetScore();
+    this.overTimer = 0;
+    this.overState = false;
+    this.nearState = false;
+    this.cooldownUntil = 0;
+    this.wasCooling = false;
+    this.waitingVisibleAt = rt - 1000;
+    this.reached = [];
+    this.go = null;
+    this.current = this.forcedStage || randomDropStage();
+    this.next = randomDropStage();
+    UI.setNext(this.next, rt);
+    UI.ringDirty = true;
+    UI.hideResult();
+    Loop.acc = 0;
+    this.bestAtStart = this.best;
+    this.state = "playing";
+  },
+  canDrop() { return this.state === "playing" && this.world.time >= this.cooldownUntil; },
+  clampX(x, stage) {
+    const r = FRUITS[stage].r;
+    return clamp(x, r + 1, CONFIG.W - r - 1);
+  },
+  drop() {
+    if (!this.canDrop()) return false;
+    const stage = this.current;
+    const x = this.clampX(this.dropX, stage);
+    const f = this.world.addFruit(stage, x, CONFIG.DROP_Y, 0, 0);
+    f.spawnTime = this.world.time;
+    Sound.drop();
+    this.current = this.forcedStage || this.next;
+    this.next = randomDropStage();
+    UI.setNext(this.next, rt);
+    this.cooldownUntil = this.world.time + CONFIG.DROP_COOLDOWN;
+    this.wasCooling = true;
+    return true;
+  },
+  onMerge(info) {
+    const watermelonPair = info.stage === MAX_STAGE;
+    const ns = watermelonPair ? MAX_STAGE : info.stage + 1;
+    const pts = FRUITS[ns].points;
+    this.score += pts;
+    if (this.score > this.best) this.best = this.score;
+    UI.setScore(this.score, rt);
+    if (!this.reached[ns]) { this.reached[ns] = true; UI.ringDirty = true; }
+    const R = FRUITS[ns].r;
+    if (info.fruit) info.fruit.bornRt = rt;
+    const special = ns === MAX_STAGE;
+    if (watermelonPair) {
+      Effects.addVanish(MAX_STAGE, info.a.x, info.a.y, info.a.angle);
+      Effects.addVanish(MAX_STAGE, info.b.x, info.b.y, info.b.angle);
+    }
+    Effects.juice(info.x, info.y, ns, R, special ? 3 : 1, special ? 1.3 : 1);
+    Effects.ripple(info.x, info.y, R, 0, 1.8);
+    Effects.popup(info.x, info.y - R * 0.2, pts, ns, special);
+    if (special) {
+      Effects.ripple(info.x, info.y, R, 120, 2.4);
+      Effects.shake(8, 500);
+      Effects.confettiBurst(info.x, info.y);
+      Effects.doFlash();
+      Sound.watermelon();
+    } else {
+      Sound.merge(ns);
+    }
+  },
+  onImpact(f, x, y, speed, normal) {
+    if (speed <= 600) return;
+    if (this.world.time - f.lastDust < 300) return;
+    f.lastDust = this.world.time;
+    Effects.dustPuff(x, y, speed, normal);
+  },
+  afterStep() {
+    const w = this.world;
+    let over = false, near = false;
+    for (let i = 0; i < w.fruits.length; i++) {
+      const f = w.fruits[i];
+      if (w.time - f.spawnTime < CONFIG.GRACE_MS) continue;
+      const top = f.body.position.y - f.r;
+      if (top < CONFIG.DEAD_Y) { over = true; break; }
+      if (top < CONFIG.DEAD_Y + CONFIG.NEAR_MARGIN) near = true;
+    }
+    this.overState = over;
+    this.nearState = near;
+    if (over) {
+      this.overTimer += CONFIG.STEP_MS;
+      if (this.overTimer >= CONFIG.OVER_MS - 1e-6 && !this.noGameOver) this.gameOver();
+    } else {
+      this.overTimer = 0;
+    }
+  },
+  gameOver() {
+    this.state = "gameover";
+    Sound.gameOver();
+    const isRecord = this.score > this.bestAtStart;
+    if (this.score > this.best) this.best = this.score;
+    store.set("fruitdrop.highscore", this.best);
+    const order = this.world.fruits.slice().sort((a, b) => a.body.position.y - b.body.position.y);
+    const interval = order.length ? Math.min(60, 1500 / order.length) : 0;
+    const start = rt;
+    order.forEach((f, i) => { f.grayStart = start + 300 + i * interval; });
+    const lastGray = order.length ? start + 300 + (order.length - 1) * interval + 200 : start + 300;
+    this.go = { start: start, order: order, resultAt: lastGray + 300, shown: false, isRecord: isRecord };
+  },
+  update(dt) {
+    if (this.state === "playing") {
+      let dir = 0;
+      if (Input.keys.left) dir -= 1;
+      if (Input.keys.right) dir += 1;
+      if (dir) this.dropX = this.clampX(this.dropX + dir * CONFIG.KEY_SPEED * dt / 1000, this.current);
+      const cooling = this.world.time < this.cooldownUntil;
+      if (this.wasCooling && !cooling) this.waitingVisibleAt = rt;
+      this.wasCooling = cooling;
+    }
+    if (this.state === "gameover" && this.go && !this.go.shown && rt >= this.go.resultAt) {
+      this.go.shown = true;
+      this.state = "result";
+      UI.showResult(this.go.isRecord);
+    }
+  }
+};
+
+/* =========================================================================
+ * Input — pointer + keyboard
+ * ========================================================================= */
+const Input = {
+  keys: { left: false, right: false },
+  activePointer: null,
+  toLogicalX(clientX) {
+    const rect = canvas.getBoundingClientRect();
+    return (clientX - rect.left) / rect.width * CONFIG.VIEW.w + CONFIG.VIEW.x;
+  },
+  init() {
+    const unlock = () => Sound.unlock();
+    window.addEventListener("pointerdown", unlock, true);
+    window.addEventListener("keydown", unlock, true);
+
+    startOverlay.addEventListener("click", () => Game.start());
+    stageEl.addEventListener("pointerdown", (e) => {
+      if (e.target.closest && (e.target.closest("#result") || e.target.closest("#startOverlay"))) return;
+      if (Game.state !== "playing") return;
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      this.activePointer = e.pointerId;
+      try { stageEl.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      Game.dropX = Game.clampX(this.toLogicalX(e.clientX), Game.current);
+      e.preventDefault();
+    });
+    stageEl.addEventListener("pointermove", (e) => {
+      if (Game.state !== "playing") return;
+      if (e.pointerType === "mouse" || this.activePointer === e.pointerId) {
+        Game.dropX = Game.clampX(this.toLogicalX(e.clientX), Game.current);
+      }
+    });
+    const end = (e, doDrop) => {
+      if (this.activePointer !== e.pointerId) return;
+      this.activePointer = null;
+      if (doDrop && Game.state === "playing") {
+        Game.dropX = Game.clampX(this.toLogicalX(e.clientX), Game.current);
+        Game.drop();
+      }
+    };
+    stageEl.addEventListener("pointerup", (e) => end(e, true));
+    stageEl.addEventListener("pointercancel", (e) => end(e, false));
+
+    $("retryBtn").addEventListener("click", () => { if (Game.state === "result") Game.retry(); });
+    muteBtn.addEventListener("click", () => {
+      Sound.unlock();
+      Sound.setMuted(!Sound.muted);
+      muteBtn.classList.toggle("muted", Sound.muted);
+    });
+    muteBtn.classList.toggle("muted", Sound.muted);
+
+    window.addEventListener("keydown", (e) => {
+      const tag = e.target && e.target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
+        e.preventDefault();
+        if (Game.state === "ready") Game.start();
+        if (e.code === "ArrowLeft") this.keys.left = true; else this.keys.right = true;
+      } else if (e.code === "Space") {
+        e.preventDefault();
+        if (e.repeat) return;
+        if (Game.state === "ready") Game.start();
+        else if (Game.state === "playing") Game.drop();
+        else if (Game.state === "result") Game.retry();
+      } else if (e.code === "Enter") {
+        if (Game.state === "ready") Game.start();
+        else if (Game.state === "result") { e.preventDefault(); Game.retry(); }
+      } else if (e.code === "KeyM") {
+        Sound.setMuted(!Sound.muted);
+        muteBtn.classList.toggle("muted", Sound.muted);
+      }
+    });
+    window.addEventListener("keyup", (e) => {
+      if (e.code === "ArrowLeft") this.keys.left = false;
+      if (e.code === "ArrowRight") this.keys.right = false;
+    });
+    window.addEventListener("blur", () => { this.keys.left = false; this.keys.right = false; });
+
+    const prevent = (e) => { if (!(e.target.closest && e.target.closest("#debugPanel"))) e.preventDefault(); };
+    document.addEventListener("touchmove", prevent, { passive: false });
+    document.addEventListener("gesturestart", prevent, { passive: false });
+    document.addEventListener("dblclick", prevent, { passive: false });
+    document.addEventListener("contextmenu", prevent);
+  }
+};
+
+/* =========================================================================
+ * Rendering
+ * ========================================================================= */
+function lerpAngle(a, b, t) {
+  let d = b - a;
+  while (d > Math.PI) d -= TAU;
+  while (d < -Math.PI) d += TAU;
+  return a + d * t;
+}
+function fruitPose(f, alpha) {
+  const p = f.body.position;
+  if (!RENDER.interpolate) return { x: p.x, y: p.y, a: f.body.angle };
+  return { x: f.px + (p.x - f.px) * alpha, y: f.py + (p.y - f.py) * alpha, a: lerpAngle(f.pa, f.body.angle, alpha) };
+}
+function drawSprite(sp, x, y, angle, scale) {
+  ctx.save();
+  ctx.translate(x, y);
+  if (angle) ctx.rotate(angle);
+  if (scale !== 1) ctx.scale(scale, scale);
+  ctx.drawImage(sp.canvas, -sp.half, -sp.half, sp.half * 2, sp.half * 2);
+  ctx.restore();
+}
+function popScale(f) {
+  if (f.bornRt === null) return 1;
+  const t = (rt - f.bornRt) / 250;
+  if (t >= 1) { f.bornRt = null; return 1; }
+  return 0.6 + 0.4 * Easing.outBack(clamp01(t), 4.0);
+}
+
+function render() {
+  const ps = Layout.ps;
+  const W = CONFIG.W, H = CONFIG.H;
+  const alpha = Game.state === "playing" ? clamp01(Loop.acc / CONFIG.STEP_MS) : Loop.frozenAlpha;
+  const sh = Effects.shakeOffset(rt);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.setTransform(1, 0, 0, 1, sh.x * ps, sh.y * ps);
+  ctx.drawImage(Layout.inner, 0, 0);
+  Layout.baseTransform(ctx, sh.x, sh.y);
+
+  const showWaiting = Game.state === "playing" && Game.canDrop();
+  const wr = FRUITS[Game.current].r;
+  const wx = Game.clampX(Game.dropX, Game.current);
+  if (showWaiting) {
+    ctx.beginPath();
+    ctx.moveTo(wx, CONFIG.DROP_Y + wr);
+    ctx.lineTo(wx, H);
+    ctx.strokeStyle = "rgba(120,85,50,0.20)";
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
+    ctx.stroke();
+  }
+
+  const fruits = Game.world.fruits;
+  for (let i = 0; i < fruits.length; i++) {
+    const f = fruits[i];
+    const pose = fruitPose(f, alpha);
+    f.rx = pose.x; f.ry = pose.y; f.ra = pose.a;
+    drawSprite(SpriteCache.color[f.stage], pose.x, pose.y, pose.a, popScale(f));
+  }
+  Effects.drawLow(ctx);
+
+  ctx.setTransform(1, 0, 0, 1, sh.x * ps, sh.y * ps);
+  ctx.drawImage(Layout.frame, 0, 0);
+  Layout.baseTransform(ctx, sh.x, sh.y);
+
+  // deadline
+  ctx.beginPath();
+  ctx.moveTo(0, CONFIG.DEAD_Y);
+  ctx.lineTo(W, CONFIG.DEAD_Y);
+  if (Game.overState || Game.state === "gameover" || Game.state === "result") {
+    const blink = Game.state === "playing" ? 0.25 + 0.75 * (0.5 + 0.5 * Math.cos(TAU * rt / 400)) : 1;
+    ctx.strokeStyle = "rgba(229,57,53," + blink.toFixed(3) + ")";
+    ctx.lineWidth = 3;
+  } else {
+    ctx.strokeStyle = Game.nearState ? "rgba(200,90,70,0.55)" : "rgba(200,90,70,0.25)";
+    ctx.lineWidth = 2;
+  }
+  ctx.setLineDash([8, 8]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // rail
+  ctx.beginPath();
+  ctx.moveTo(0, CONFIG.RAIL_Y);
+  ctx.lineTo(W, CONFIG.RAIL_Y);
+  ctx.setLineDash([4, 6]);
+  ctx.strokeStyle = "rgba(138,90,43,0.22)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  if (showWaiting) {
+    const t = clamp01((rt - Game.waitingVisibleAt) / 120);
+    drawSprite(SpriteCache.color[Game.current], wx, CONFIG.DROP_Y, 0, 0.6 + 0.4 * Easing.outBack(t));
+  }
+
+  Effects.drawHigh(ctx, FONT);
+
+  if (Effects.flash) {
+    const t = Effects.flash.age / Effects.flash.life;
+    ctx.globalAlpha = 0.35 * (1 - Easing.outQuad(t));
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(CONFIG.VIEW.x - 20, CONFIG.VIEW.y - 20, CONFIG.VIEW.w + 40, CONFIG.VIEW.h + 40);
+    ctx.globalAlpha = 1;
+  }
+
+  if (Game.go) {
+    const t = clamp01((rt - Game.go.start) / 500);
+    ctx.fillStyle = "rgba(40,25,15," + (0.45 * Easing.outQuad(t)).toFixed(3) + ")";
+    ctx.fillRect(CONFIG.VIEW.x - 20, CONFIG.VIEW.y - 20, CONFIG.VIEW.w + 40, CONFIG.VIEW.h + 40);
+    for (const f of Game.go.order) {
+      if (rt < f.grayStart) continue;
+      ctx.globalAlpha = clamp01((rt - f.grayStart) / 200);
+      drawSprite(SpriteCache.getGray(f.stage), f.rx, f.ry, f.ra, 1);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  if (DEBUG) Debug.draw(ctx, alpha);
+}
+
+/* =========================================================================
+ * Loop — fixed time step with an accumulator
+ * ========================================================================= */
+const Loop = {
+  acc: 0,
+  last: null,
+  raf: 0,
+  frozenAlpha: 1,
+  paused: false,
+  stepsThisSecond: 0,
+  tick(frameDt) {
+    const dt = Math.min(frameDt, CONFIG.MAX_FRAME_MS);
+    if (Game.state === "playing") {
+      this.acc += dt;
+      let steps = 0;
+      while (this.acc >= CONFIG.STEP_MS - 1e-6 && steps < CONFIG.MAX_STEPS_PER_FRAME) {
+        Game.world.step();
+        Game.afterStep();
+        this.acc -= CONFIG.STEP_MS;
+        steps++;
+        this.stepsThisSecond++;
+        if (Game.state !== "playing") break;
+      }
+      if (this.acc < 0) this.acc = 0;
+      if (steps === CONFIG.MAX_STEPS_PER_FRAME && this.acc >= CONFIG.STEP_MS) this.acc = 0;
+      if (Game.state !== "playing") this.frozenAlpha = clamp01(this.acc / CONFIG.STEP_MS);
+    }
+    const edt = Math.min(dt, CONFIG.MAX_EFFECT_DT);
+    rt += edt;
+    Effects.update(edt);
+    Game.update(edt);
+    UI.update(rt);
+  },
+  frame(ts) {
+    Loop.raf = requestAnimationFrame(Loop.frame);
+    if (Loop.last === null) Loop.last = ts;
+    const dt = ts - Loop.last;
+    Loop.last = ts;
+    Loop.tick(dt);
+    render();
+    if (DEBUG) Debug.frame(ts);
+  },
+  start() {
+    if (this.raf) return;
+    this.last = null;
+    this.raf = requestAnimationFrame(this.frame);
+  },
+  stop() {
+    if (this.raf) cancelAnimationFrame(this.raf);
+    this.raf = 0;
+  }
+};
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    Loop.paused = true;
+    Loop.stop();
+    Input.keys.left = Input.keys.right = false;
+  } else {
+    Loop.paused = false;
+    Loop.acc = 0;
+    Loop.start();
+  }
+});
+window.addEventListener("pagehide", () => { store.set("fruitdrop.highscore", Game.best); });
+window.addEventListener("resize", () => Layout.schedule());
+window.addEventListener("orientationchange", () => Layout.schedule());
+
+/* =========================================================================
+ * Debug (?debug=1) — tuning panel, overlays, measurement tests, test API
+ * ========================================================================= */
+const Debug = {
+  show: { bodies: false, vectors: false, stats: true },
+  fps: 0,
+  frames: 0,
+  fpsT: 0,
+  sps: 0,
+  panel: null,
+  init() {
+    const SL = [
+      ["gravity", 500, 5000, 10], ["restitutionWall", 0, 1, 0.01], ["restitutionFruit", 0, 1, 0.01],
+      ["frictionWall", 0, 1, 0.01], ["frictionFruit", 0, 1, 0.01],
+      ["frictionStaticWall", 0, 2, 0.01], ["frictionStaticFruit", 0, 2, 0.01],
+      ["frictionAir", 0, 0.05, 0.0005], ["rollingDamping", 0, 0.2, 0.005], ["density", 0.0002, 0.005, 0.0001],
+      ["positionIterations", 1, 60, 1], ["velocityIterations", 1, 60, 1], ["slop", 0, 0.5, 0.01],
+      ["maxSpeed", 300, 3000, 10], ["maxAngularSpeed", 2, 60, 1], ["mergePushMaxSpeed", 50, 2000, 10],
+      ["mergePushDuration", 0, 1000, 10], ["massExponent", 1, 2, 0.05], ["substeps", 1, 4, 1]
+    ];
+    const p = document.createElement("details");
+    p.id = "debugPanel";
+    p.open = true;
+    let html = "<summary>DEBUG / PHYSICS</summary><div class='body'>";
+    for (const [k, mn, mx, st] of SL) {
+      html += "<div class='sl'><label for='sl_" + k + "'><span>" + k + "</span></label>" +
+        "<input type='range' id='sl_" + k + "' data-k='" + k + "' min='" + mn + "' max='" + mx + "' step='" + st + "'>" +
+        "<input type='number' id='nb_" + k + "' data-k='" + k + "' min='" + mn + "' max='" + mx + "' step='" + st + "'></div>";
+    }
+    html += "<div id='dbgEff'></div>" +
+      "<button id='dbgCopy'>現在値をJSONでコピー</button><button id='dbgReset'>初期値に戻す</button>" +
+      "<h4>表示</h4>" +
+      "<label><input type='checkbox' id='dbgBodies'> 物理ボディの輪郭</label><br>" +
+      "<label><input type='checkbox' id='dbgVectors'> 速度ベクトル</label><br>" +
+      "<label><input type='checkbox' id='dbgStats' checked> FPS・統計</label><br>" +
+      "<label><input type='checkbox' id='dbgInterp' checked> 描画の補間</label><br>" +
+      "<label><input type='checkbox' id='dbgNoOver'> ゲームオーバー無効</label>" +
+      "<h4>テスト</h4>" +
+      "<button id='dbgMeasure'>計測テスト</button><button id='dbgStack'>積載テスト</button><button id='dbg30'>30個テスト</button>" +
+      "<div id='dbgOut'></div><textarea id='dbgJson' readonly></textarea>" +
+      "<div style='color:#777'>数字キー 1〜9,0,- で投下する段階を固定 / Esc で解除</div></div>";
+    p.innerHTML = html;
+    document.body.appendChild(p);
+    this.panel = p;
+    const sync = () => {
+      for (const [k] of SL) {
+        $("sl_" + k).value = PHYSICS[k];
+        $("nb_" + k).value = PHYSICS[k];
+      }
+      this.showEffective();
+    };
+    const onInput = (e) => {
+      const k = e.target.dataset.k;
+      const v = parseFloat(e.target.value);
+      if (!isFinite(v)) return;
+      PHYSICS[k] = v;
+      $("sl_" + k).value = v;
+      $("nb_" + k).value = v;
+      Game.world.applyPhysics();
+      this.showEffective();
+    };
+    p.querySelectorAll("input[data-k]").forEach((el) => el.addEventListener("input", onInput));
+    $("dbgCopy").addEventListener("click", () => {
+      const json = JSON.stringify(PHYSICS, null, 2);
+      $("dbgJson").value = json;
+      try { navigator.clipboard.writeText(json); } catch (e) { /* textarea fallback shown */ }
+    });
+    $("dbgReset").addEventListener("click", () => {
+      Object.assign(PHYSICS, PHYSICS_DEFAULTS);
+      Game.world.applyPhysics();
+      sync();
+    });
+    $("dbgBodies").addEventListener("change", (e) => { this.show.bodies = e.target.checked; });
+    $("dbgVectors").addEventListener("change", (e) => { this.show.vectors = e.target.checked; });
+    $("dbgStats").addEventListener("change", (e) => { this.show.stats = e.target.checked; });
+    $("dbgInterp").addEventListener("change", (e) => { RENDER.interpolate = e.target.checked; });
+    $("dbgNoOver").addEventListener("change", (e) => { Game.noGameOver = e.target.checked; });
+    $("dbgMeasure").addEventListener("click", () => this.showMeasure(Tests.measureAll()));
+    $("dbgStack").addEventListener("click", () => this.showStack(Tests.stackTest()));
+    $("dbg30").addEventListener("click", () => Tests.thirty());
+    window.addEventListener("keydown", (e) => {
+      const tag = e.target && e.target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      const map = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5, Digit6: 6, Digit7: 7, Digit8: 8, Digit9: 9, Digit0: 10, Minus: 11 };
+      if (map[e.code]) { Game.forcedStage = map[e.code]; Game.current = map[e.code]; }
+      if (e.code === "Escape") Game.forcedStage = 0;
+    });
+    sync();
+  },
+  showEffective() {
+    const eff = $("dbgEff");
+    if (!eff) return;
+    eff.textContent = "実効値 果物-壁: e=" + Math.max(PHYSICS.restitutionWall, PHYSICS.restitutionFruit) +
+      " μ=" + Math.min(PHYSICS.frictionWall, PHYSICS.frictionFruit) +
+      " μs=" + Math.max(PHYSICS.frictionStaticWall, PHYSICS.frictionStaticFruit) +
+      " / 果物同士: e=" + PHYSICS.restitutionFruit + " μ=" + PHYSICS.frictionFruit + " μs=" + PHYSICS.frictionStaticFruit;
+  },
+  showMeasure(res) {
+    const cell = (m) => "<td class='" + (m.ok ? "ok" : "ng") + "'>" + m.text + "</td>";
+    let h = "<h4>計測テスト（目標との差）</h4><table><tr><th>段階</th><th>落下</th><th>跳ね</th><th>回数</th><th>停止</th></tr>";
+    for (const r of res.rows) {
+      h += "<tr><td>" + r.stage + " " + FRUITS[r.stage].name + "</td>" + cell(r.fallEval) + cell(r.bounceEval) + cell(r.countEval) + cell(r.settleEval) + "</tr>";
+    }
+    h += "</table><div>目標: 落下0.60〜0.80秒 / 跳ね5〜10% / 1〜2回 / 停止1.5秒以内</div>";
+    $("dbgOut").innerHTML = h;
+    $("dbgJson").value = JSON.stringify(res, null, 1);
+  },
+  showStack(res) {
+    $("dbgOut").innerHTML = "<h4>積載テスト（30秒）</h4><table>" +
+      "<tr><td>スイカの下の果物</td><td>" + res.under + "個</td></tr>" +
+      "<tr><td>最大めり込み（果物同士）</td><td class='" + (res.maxPen <= 2 ? "ok" : "ng") + "'>" + res.maxPen.toFixed(3) + "u</td></tr>" +
+      "<tr><td>最大めり込み（床）</td><td class='" + (res.maxFloorPen <= 2 ? "ok" : "ng") + "'>" + res.maxFloorPen.toFixed(3) + "u</td></tr>" +
+      "<tr><td>沈み込み（2秒→30秒）</td><td class='" + (Math.abs(res.sink) <= 1 ? "ok" : "ng") + "'>" + res.sink.toFixed(3) + "u</td></tr>" +
+      "<tr><td>床より下</td><td class='" + (res.belowFloor === 0 ? "ok" : "ng") + "'>" + res.belowFloor + "個</td></tr></table>";
+    $("dbgJson").value = JSON.stringify(res, null, 1);
+  },
+  frame(ts) {
+    this.frames++;
+    if (ts - this.fpsT >= 500) {
+      const span = ts - this.fpsT;
+      this.fps = this.frames * 1000 / span;
+      this.sps = Loop.stepsThisSecond * 1000 / span;
+      this.frames = 0;
+      Loop.stepsThisSecond = 0;
+      this.fpsT = ts;
+    }
+  },
+  draw(c, alpha) {
+    Layout.baseTransform(c, 0, 0);
+    const fruits = Game.world.fruits;
+    if (this.show.bodies) {
+      c.strokeStyle = "#00C853";
+      c.lineWidth = 1;
+      for (const f of fruits) {
+        const v = f.body.vertices;
+        c.beginPath();
+        c.moveTo(v[0].x, v[0].y);
+        for (let i = 1; i < v.length; i++) c.lineTo(v[i].x, v[i].y);
+        c.closePath();
+        c.stroke();
+      }
+      c.strokeStyle = "rgba(0,200,83,0.5)";
+      for (const w of Game.world.walls) {
+        const v = w.vertices;
+        c.beginPath();
+        c.moveTo(v[0].x, v[0].y);
+        for (let i = 1; i < v.length; i++) c.lineTo(v[i].x, v[i].y);
+        c.closePath();
+        c.stroke();
+      }
+    }
+    if (this.show.vectors) {
+      c.strokeStyle = "#E53935";
+      c.lineWidth = 1.5;
+      for (const f of fruits) {
+        const p = f.body.position, v = Body.getVelocity(f.body);
+        c.beginPath();
+        c.moveTo(p.x, p.y);
+        c.lineTo(p.x + v.x * 6, p.y + v.y * 6);
+        c.stroke();
+      }
+    }
+    if (this.show.stats) {
+      c.font = "11px monospace";
+      c.textAlign = "left";
+      c.textBaseline = "top";
+      c.fillStyle = "rgba(0,0,0,0.65)";
+      const lines = [
+        "FPS " + this.fps.toFixed(1) + "  steps/s " + this.sps.toFixed(1),
+        "fruits " + fruits.length + "  bodies " + Composite.allBodies(Game.world.engine.world).length + "  fx " + Effects.count(),
+        "rescue " + Game.world.rescueCount + "  over " + Math.round(Game.overTimer) + "ms  t " + (Game.world.time / 1000).toFixed(1) + "s  α " + alpha.toFixed(2)
+      ];
+      lines.forEach((l, i) => c.fillText(l, CONFIG.VIEW.x + 4, CONFIG.VIEW.y + 4 + i * 13));
+    }
+  }
+};
+
+/* =========================================================================
+ * Tests — measurement and stacking (isolated worlds, run synchronously)
+ * ========================================================================= */
+const Tests = {
+  TARGET: { fall: [0.6, 0.8], bounce: [0.05, 0.10], count: [1, 2], settle: [0, 1.5] },
+  evalRange(v, range, fmt) {
+    const ok = v !== null && v >= range[0] - 1e-9 && v <= range[1] + 1e-9;
+    let diff = 0;
+    if (v === null) diff = NaN;
+    else if (v < range[0]) diff = v - range[0];
+    else if (v > range[1]) diff = v - range[1];
+    return { value: v, ok: ok, diff: diff, text: v === null ? "—" : fmt(v) + (ok ? "" : " (" + (diff > 0 ? "+" : "") + fmt(diff) + ")") };
+  },
+  measure(stage) {
+    let contactT = null;
+    let fruit = null;
+    const world = new PhysicsWorld({
+      merge: false,
+      hooks: {
+        onWallContact: (f, label) => { if (label === "floor" && contactT === null && f === fruit) contactT = world.time; }
+      }
+    });
+    fruit = world.addFruit(stage, CONFIG.W / 2, CONFIG.DROP_Y, 0, 0);
+    const r = fruit.r;
+    const restY = CONFIG.H - r;
+    const dropH = restY - CONFIG.DROP_Y;
+    let peakY = null, goingUp = false, peakDone = false;
+    let bounces = 0, airborne = false;
+    let settleStart = null, settledAt = null;
+    const trace = [];
+    for (let i = 0; i < 600; i++) {
+      world.step();
+      const p = fruit.body.position;
+      const v = velOf(fruit.body);
+      const av = Math.abs(Body.getAngularVelocity(fruit.body) * 60);
+      if (i % 2 === 0) trace.push([Math.round(world.time), +p.y.toFixed(2)]);
+      if (contactT === null) continue;
+      if (!peakDone) {
+        if (v.y < -1e-3) {
+          goingUp = true;
+          if (peakY === null || p.y < peakY) peakY = p.y;
+        } else if (goingUp && v.y > 0) {
+          peakDone = true;
+        }
+      }
+      const gap = restY - p.y;
+      if (!airborne && gap > 0.5) { airborne = true; bounces++; }
+      else if (airborne && gap <= 0.5) airborne = false;
+      const sp = Math.hypot(v.x, v.y);
+      if (sp < 3 && av < 0.1) {
+        if (settleStart === null) settleStart = world.time;
+        if (world.time - settleStart >= 200 - 1e-6) { settledAt = settleStart; break; }
+      } else {
+        settleStart = null;
+      }
+    }
+    world.destroy();
+    const fall = contactT === null ? null : contactT / 1000;
+    const bounce = peakY === null ? 0 : (restY - peakY) / dropH;
+    const settle = settledAt === null || contactT === null ? null : (settledAt - contactT) / 1000;
+    const T = this.TARGET;
+    return {
+      stage: stage,
+      fall: fall, bounce: bounce, bounceCount: bounces, settle: settle,
+      fallEval: this.evalRange(fall, T.fall, (v) => v.toFixed(3) + "s"),
+      bounceEval: this.evalRange(bounce, T.bounce, (v) => (v * 100).toFixed(2) + "%"),
+      countEval: this.evalRange(bounces, T.count, (v) => String(Math.round(v))),
+      settleEval: this.evalRange(settle, T.settle, (v) => v.toFixed(3) + "s"),
+      trace: trace
+    };
+  },
+  measureAll() {
+    const rows = [3, 1, 5].map((s) => this.measure(s));
+    return { physics: Object.assign({}, PHYSICS), rows: rows };
+  },
+  stackTest(options) {
+    const o = options || {};
+    const world = new PhysicsWorld({ merge: false });
+    const smalls = [];
+    const r1 = FRUITS[1].r, r2 = FRUITS[2].r;
+    for (let i = 0; i < 16; i++) smalls.push(world.addFruit(1, r1 + 0.5 + i * (2 * r1 + 0.5), CONFIG.H - r1 - 0.5, 0, 0));
+    for (let i = 0; i < 15; i++) smalls.push(world.addFruit(1, 2 * r1 + 0.5 + i * (2 * r1 + 0.5), CONFIG.H - r1 - 2 * r1 * 0.87 - 1, 0, 0));
+    for (let i = 0; i < 11; i++) smalls.push(world.addFruit(2, r2 + 4 + i * (2 * r2 + 1.5), CONFIG.H - 3.2 * r1 - r2 - 2, 0, 0));
+    for (let i = 0; i < 90; i++) world.step();
+    const wm = world.addFruit(11, CONFIG.W / 2 + (o.offsetX || 0), CONFIG.H - 4 * r1 - 2 * r2 - FRUITS[11].r - 10, 0, 0);
+    const steps = o.steps || 1800;
+    let maxPen = 0, maxFloorPen = 0, y2 = null;
+    const all = world.fruits;
+    for (let i = 0; i < steps; i++) {
+      world.step();
+      if (i === 120) y2 = wm.body.position.y;
+      if (i >= 120 && i % 3 === 0) {
+        for (let a = 0; a < all.length; a++) {
+          const fa = all[a], pa = fa.body.position;
+          const fp = pa.y + fa.r - CONFIG.H;
+          if (fp > maxFloorPen) maxFloorPen = fp;
+          for (let b = a + 1; b < all.length; b++) {
+            const fb = all[b], pb = fb.body.position;
+            const pen = fa.r + fb.r - Math.hypot(pa.x - pb.x, pa.y - pb.y);
+            if (pen > maxPen) maxPen = pen;
+          }
+        }
+      }
+    }
+    let endPen = 0;
+    for (let a = 0; a < all.length; a++) {
+      for (let b = a + 1; b < all.length; b++) {
+        const pa = all[a].body.position, pb = all[b].body.position;
+        const pen = all[a].r + all[b].r - Math.hypot(pa.x - pb.x, pa.y - pb.y);
+        if (pen > endPen) endPen = pen;
+      }
+    }
+    const wp = wm.body.position;
+    let under = 0, belowFloor = 0;
+    for (const f of smalls) {
+      const p = f.body.position;
+      if (Math.abs(p.x - wp.x) < wm.r && p.y > wp.y) under++;
+      if (p.y + f.r > CONFIG.H + 2) belowFloor++;
+    }
+    const res = {
+      physics: Object.assign({}, PHYSICS),
+      seconds: steps / 60,
+      fruits: all.length,
+      under: under,
+      maxPen: maxPen,
+      endPen: endPen,
+      maxFloorPen: maxFloorPen,
+      sink: wp.y - y2,
+      belowFloor: belowFloor,
+      rescue: world.rescueCount
+    };
+    world.destroy();
+    return res;
+  },
+  thirty() {
+    let n = 0;
+    Game.noGameOver = true;
+    const cb = $("dbgNoOver");
+    if (cb) cb.checked = true;
+    const timer = setInterval(() => {
+      if (Game.state !== "playing" || n >= 40) { clearInterval(timer); return; }
+      const st = 1 + Math.floor(Math.random() * 6);
+      const r = FRUITS[st].r;
+      Game.world.addFruit(st, rand(r + 1, CONFIG.W - r - 1), CONFIG.DROP_Y, 0, 0).spawnTime = Game.world.time;
+      n++;
+    }, 150);
+  }
+};
+
+/* =========================================================================
+ * Boot
+ * ========================================================================= */
+function boot() {
+  if (!M) {
+    startOverlay.querySelector(".small").textContent = "物理エンジンを読み込めませんでした。再読み込みしてください。";
+    return;
+  }
+  Input.init();
+  Game.init();
+  Layout.apply();
+  UI.ringDirty = true;
+  if (DEBUG) {
+    Debug.init();
+    window.__fd = {
+      Game: Game, PHYSICS: PHYSICS, PHYSICS_DEFAULTS: PHYSICS_DEFAULTS, FRUITS: FRUITS, CONFIG: CONFIG, Tests: Tests, Effects: Effects, Loop: Loop, RENDER: RENDER, Layout: Layout,
+      get world() { return Game.world; },
+      start() { Game.start(); },
+      reset() { Game.retry(); },
+      spawn(stage, x, y, vx, vy) {
+        const f = Game.world.addFruit(stage, x, y, vx || 0, vy || 0);
+        f.spawnTime = Game.world.time;
+        return f.id;
+      },
+      pin(id) {
+        const f = Game.world.fruits.find((q) => q.id === id);
+        if (f) Body.setStatic(f.body, true);
+      },
+      drop(x, stage) {
+        if (stage) Game.current = stage;
+        Game.dropX = x;
+        return Game.drop();
+      },
+      stepFrames(hz, seconds) {
+        const n = Math.round(hz * seconds);
+        for (let i = 0; i < n; i++) Loop.tick(1000 / hz);
+        return { frames: n, time: Game.world.time };
+      },
+      renderOnce() { render(); },
+      getState() {
+        return {
+          state: Game.state, score: Game.score, best: Game.best, time: Game.world.time,
+          overTimer: Game.overTimer, overState: Game.overState, rescue: Game.world.rescueCount,
+          bodies: Composite.allBodies(Game.world.engine.world).length,
+          effects: Effects.count(),
+          listeners: Object.keys(Game.world.engine.events || {}).reduce((s, k) => s + Game.world.engine.events[k].length, 0),
+          fruits: Game.world.fruits.map((f) => ({ id: f.id, stage: f.stage, r: f.r, x: f.body.position.x, y: f.body.position.y, angle: f.body.angle }))
+        };
+      }
+    };
+  }
+  Loop.start();
+}
+boot();
+
+})();
+</script>
+</body>
+</html>

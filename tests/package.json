@@ -1,0 +1,7 @@
+{
+  "name": "fruitdrop-tests",
+  "private": true,
+  "description": "Headless self-check for index.html (Matter.js served locally in place of the CDN)",
+  "scripts": { "test": "node selfcheck.js" },
+  "devDependencies": { "matter-js": "0.19.0" }
+}
