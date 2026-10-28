@@ -1,7 +1,8 @@
-// Headless self-check for index.html (acceptance criteria 1-13 of docs/SPEC.md).
+// Headless self-check for index.html (acceptance criteria 1-13 of docs/SPEC.md,
+// plus the v1.2 additions: offline single file, BGM, start screen, pause, AUTO PLAY).
 // Usage: cd tests && npm install && node selfcheck.js
-// The page loads Matter.js from cdnjs; here the request is answered with the
-// identical matter-js@0.19.0 build from node_modules so the test runs offline.
+// Every page runs in an offline browser context and every non-file request is
+// recorded and aborted: index.html must work from file:// with no network.
 "use strict";
 const { chromium } = require("playwright");
 const fs = require("fs");
@@ -10,23 +11,37 @@ const path = require("path");
 const ROOT = path.resolve(__dirname, "..");
 const PAGE = "file://" + path.join(ROOT, "index.html") + "?debug=1";
 const MATTER = path.join(__dirname, "node_modules/matter-js/build/matter.min.js");
+const networkRequests = [];
 const OUT = path.join(__dirname, "out");
 fs.mkdirSync(OUT, { recursive: true });
 
-async function open(browser, opts) {
-  const page = await browser.newPage(opts || { viewport: { width: 1280, height: 800 } });
+async function openRaw(browser, opts) {
+  const context = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 800 } }, opts || {}, { offline: true }));
+  const page = await context.newPage();
   const errors = [];
-  await page.route("**/matter.min.js", (r) => r.fulfill({ path: MATTER, contentType: "application/javascript" }));
+  await context.route("**/*", (r) => {
+    const url = r.request().url();
+    if (url.startsWith("file:") || url.startsWith("data:") || url.startsWith("blob:")) return r.continue();
+    networkRequests.push(url);
+    return r.abort();
+  });
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+  page.errors = errors;
+  page.closeAll = () => context.close();
   await page.goto(PAGE);
   await page.waitForFunction(() => !!window.__fd);
+  await page.evaluate(() => { document.getElementById("debugPanel").open = false; });
+  return page;
+}
+
+async function open(browser, opts) {
+  const page = await openRaw(browser, opts);
   await page.evaluate(() => {
     __fd.start();
     __fd.Loop.stop();                 // tests drive the loop themselves (deterministic)
-    document.getElementById("debugPanel").open = false;
+    __fd.Game.autoEnabled = false;    // AUTO PLAY is tested separately
   });
-  page.errors = errors;
   return page;
 }
 
@@ -34,6 +49,197 @@ const results = {};
 function record(id, ok, detail) {
   results[id] = { ok: ok, detail: detail };
   console.log((ok ? "OK      " : "CONCERN ") + id + "  " + JSON.stringify(detail));
+}
+
+// ---------------------------------------------------------------------------
+// R3. start screen + R2. BGM (mute shared with SFX)
+async function checkStartScreen(browser) {
+  const p = await openRaw(browser);
+  const before = await p.evaluate(() => ({
+    state: __fd.Game.state,
+    overlayVisible: !document.getElementById("startOverlay").classList.contains("hidden"),
+    hasStartButton: !!document.getElementById("startBtn"),
+    howto: document.querySelector(".howto").innerText,
+    pauseDisabled: document.getElementById("pauseBtn").disabled,
+    fruits: __fd.world.fruits.length,
+    bgm: __fd.BGM.playing,
+    audio: !!__fd.Sound.ctx
+  }));
+  await p.waitForTimeout(600);
+  await p.screenshot({ path: path.join(OUT, "start_screen.png") });
+  await p.waitForTimeout(400);
+  const stillReady = await p.evaluate(() => __fd.Game.state);
+  await p.click("#startBtn");
+  await p.waitForTimeout(700);
+  const after = await p.evaluate(() => {
+    const bgm = __fd.BGM;
+    return {
+      state: __fd.Game.state,
+      overlayHidden: document.getElementById("startOverlay").classList.contains("hidden"),
+      pauseEnabled: !document.getElementById("pauseBtn").disabled,
+      audioState: __fd.Sound.ctx && __fd.Sound.ctx.state,
+      bgmPlaying: bgm.playing,
+      bgmStepsScheduled: bgm.step,
+      waitingFruitReady: __fd.Game.canDrop()
+    };
+  });
+  // mute (button and M key) silences BGM and SFX through the shared master gain
+  await p.click("#muteBtn");
+  await p.waitForTimeout(150);
+  const muted = await p.evaluate(() => ({ muted: __fd.Sound.muted, master: __fd.Sound.master.gain.value, bgmStillScheduled: __fd.BGM.playing }));
+  await p.keyboard.press("KeyM");
+  await p.waitForTimeout(150);
+  const unmuted = await p.evaluate(() => ({ muted: __fd.Sound.muted, master: +__fd.Sound.master.gain.value.toFixed(3), bgmBus: +__fd.BGM.bus.gain.value.toFixed(3) }));
+  record("R3_start_screen", before.state === "ready" && before.overlayVisible && before.hasStartButton && before.pauseDisabled &&
+    before.fruits === 0 && !before.bgm && stillReady === "ready" && after.state === "playing" && after.overlayHidden && after.pauseEnabled && after.waitingFruitReady,
+  { before: before, after: { state: after.state, overlayHidden: after.overlayHidden, pauseEnabled: after.pauseEnabled, waitingFruitReady: after.waitingFruitReady } });
+  record("R2_bgm_and_mute", after.bgmPlaying && after.bgmStepsScheduled > 0 && muted.muted && muted.master < 0.01 && muted.bgmStillScheduled &&
+    !unmuted.muted && unmuted.master > 0.55 && unmuted.bgmBus > 0 && unmuted.bgmBus <= 0.3 + 1e-6,
+  { audioState: after.audioState, bgmPlaying: after.bgmPlaying, stepsScheduledIn700ms: after.bgmStepsScheduled, muted: muted, unmuted: unmuted });
+  // keyboard start on a fresh page (Space / Enter)
+  const q = await openRaw(browser);
+  await q.keyboard.press("Enter");
+  const keyStart = await q.evaluate(() => ({ state: __fd.Game.state, bgm: __fd.BGM.playing }));
+  await q.closeAll();
+  record("R3_keyboard_start", keyStart.state === "playing" && keyStart.bgm, keyStart);
+  if (p.errors.length) results.pageErrors = (results.pageErrors || []).concat(p.errors);
+  await p.closeAll();
+}
+
+// R4. pause: physics, drops, particles, idle timer and game-over timer stand still
+async function checkPause(browser) {
+  const p = await open(browser);
+  const res = await p.evaluate(() => {
+    __fd.Game.autoEnabled = true;
+    __fd.spawn(6, 120, -60);
+    __fd.spawn(6, 120 + 84, 300);          // falls, then merges with the first one later
+    __fd.spawn(3, 300, 0);
+    const pinned = __fd.spawn(5, 330, 0);
+    __fd.pin(pinned);                      // keeps the deadline timer running
+    __fd.stepFrames(60, 1.4);
+    __fd.Effects.juice(200, 200, 8, 60, 1, 1);
+    __fd.stepFrames(60, 0.1);
+    const snap = () => {
+      const st = __fd.getState();
+      return JSON.stringify({ t: st.time, f: st.fruits, o: st.overTimer, i: st.idleMs, p: __fd.Effects.particles.map((q) => [q.x, q.y, q.age]) });
+    };
+    return { snapA: snap(), overTimerA: __fd.Game.overTimer, idleA: __fd.Game.idleMs, particles: __fd.Effects.particles.length };
+  });
+  await p.keyboard.press("KeyP");
+  // the key press itself is user input (idle timer -> 0), so the reference snapshot is taken after pausing
+  const paused1 = await p.evaluate(() => {
+    const st = __fd.getState();
+    return {
+      paused: __fd.Game.paused, overlay: !document.getElementById("pauseOverlay").classList.contains("hidden"),
+      title: document.querySelector(".pause-title").innerText, resumeBtn: document.getElementById("resumeBtn").innerText,
+      snap: JSON.stringify({ t: st.time, f: st.fruits, o: st.overTimer, i: st.idleMs, p: __fd.Effects.particles.map((q) => [q.x, q.y, q.age]) }),
+      overTimer: st.overTimer
+    };
+  });
+  await p.evaluate(() => __fd.renderOnce());
+  await p.waitForTimeout(600);
+  await p.screenshot({ path: path.join(OUT, "pause_screen.png") });
+  const during = await p.evaluate(() => {
+    const snap = () => {
+      const st = __fd.getState();
+      return JSON.stringify({ t: st.time, f: st.fruits, o: st.overTimer, i: st.idleMs, p: __fd.Effects.particles.map((q) => [q.x, q.y, q.age]) });
+    };
+    __fd.stepFrames(60, 6);                // 6 s paused: longer than the idle (5 s) and game-over (2 s) timers
+    const dropped = __fd.Game.drop();
+    return { snapB: snap(), dropWhilePaused: dropped, state: __fd.Game.state, auto: __fd.Game.auto, bgmDucked: __fd.BGM.ducked };
+  });
+  await p.keyboard.press("Escape");
+  const resumed = await p.evaluate(() => {
+    const t0 = __fd.world.time;
+    __fd.stepFrames(60, 0.5);
+    return { paused: __fd.Game.paused, overlayHidden: document.getElementById("pauseOverlay").classList.contains("hidden"), advancedMs: Math.round(__fd.world.time - t0), bgmDucked: __fd.BGM.ducked };
+  });
+  // button toggles too
+  await p.click("#pauseBtn");
+  const byButton = await p.evaluate(() => __fd.Game.paused);
+  await p.click("#resumeBtn");
+  const byResume = await p.evaluate(() => __fd.Game.paused);
+  const frozen = paused1.snap === during.snapB && paused1.overTimer > 0;
+  delete paused1.snap;
+  record("R4_pause", paused1.paused && paused1.overlay && frozen && !during.dropWhilePaused && during.state === "playing" && !during.auto && during.bgmDucked &&
+    !resumed.paused && resumed.overlayHidden && resumed.advancedMs > 450 && !resumed.bgmDucked && byButton === true && byResume === false,
+  { pausedByP: paused1, everythingFrozenFor6s: frozen, particlesFrozen: res.particles, dropWhilePaused: during.dropWhilePaused, gameOverWhilePaused: during.state !== "playing", autoWhilePaused: during.auto,
+    resumedByEsc: resumed, pauseButton: byButton, resumeButton: !byResume });
+  if (p.errors.length) results.pageErrors = (results.pageErrors || []).concat(p.errors);
+  await p.closeAll();
+}
+
+// R5. AUTO PLAY after 5 s without input, immediate hand-back on input
+async function checkAutoPlay(browser) {
+  const p = await open(browser);
+  const run = await p.evaluate(() => {
+    const G = __fd.Game;
+    __fd.reset();
+    __fd.Loop.stop();
+    G.autoEnabled = true;
+    G.noGameOver = true;
+    const drops = [];
+    const origDrop = G.drop.bind(G);
+    G.drop = function () {
+      const stage = G.current, x = G.clampX(G.dropX, stage);
+      const land = __fd.AutoPlay.landing(x, __fd.FRUITS[stage].r, __fd.world.fruits);
+      const ok = origDrop();
+      if (ok) drops.push({ t: __fd.world.time, x: x, stage: stage, auto: G.auto, onTwin: !!(land.hit && land.hit.stage === stage) });
+      return ok;
+    };
+    __fd.stepFrames(60, 4.9);
+    const at49 = G.auto;
+    __fd.stepFrames(60, 0.2);
+    const at51 = G.auto;
+    const badge = !document.getElementById("autoBadge").classList.contains("hidden");
+    const badgeText = document.getElementById("autoBadge").innerText;
+    __fd.stepFrames(60, 60);
+    const autoDrops = drops.filter((d) => d.auto);
+    const gaps = [];
+    for (let i = 1; i < autoDrops.length; i++) gaps.push(autoDrops[i].t - autoDrops[i - 1].t);
+    const xs = autoDrops.map((d) => d.x);
+    const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+    const sd = Math.sqrt(xs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / xs.length);
+    return {
+      autoAt4_9s: at49, autoAt5_1s: at51, badgeShown: badge, badgeText: badgeText,
+      autoDropsIn60s: autoDrops.length, firstAutoDropMs: autoDrops.length ? Math.round(autoDrops[0].t) : null,
+      gapMinMs: Math.round(Math.min.apply(null, gaps)), gapMaxMs: Math.round(Math.max.apply(null, gaps)),
+      xSpreadSd: +sd.toFixed(1), xMin: Math.round(Math.min.apply(null, xs)), xMax: Math.round(Math.max.apply(null, xs)),
+      landedOnTwin: autoDrops.filter((d) => d.onTwin).length, score: G.score, merges: __fd.world.mergeCount
+    };
+  });
+  await p.evaluate(() => __fd.renderOnce());
+  await p.screenshot({ path: path.join(OUT, "auto_play.png") });
+  // real mouse movement over the field hands control back immediately
+  const box = await p.locator("#game").boundingBox();
+  await p.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.5);
+  await p.mouse.move(box.x + box.width * 0.32, box.y + box.height * 0.5);
+  const afterMouse = await p.evaluate(() => ({ auto: __fd.Game.auto, idleMs: __fd.Game.idleMs, badgeHidden: document.getElementById("autoBadge").classList.contains("hidden"), dropX: Math.round(__fd.Game.dropX) }));
+  const backToAuto = await p.evaluate(() => {
+    __fd.stepFrames(60, 4.9);
+    const a = __fd.Game.auto;
+    __fd.stepFrames(60, 0.2);
+    return { at4_9s: a, at5_1s: __fd.Game.auto };
+  });
+  await p.keyboard.down("ArrowLeft");
+  const afterKey = await p.evaluate(() => ({ auto: __fd.Game.auto, idleMs: __fd.Game.idleMs }));
+  const keyMoves = await p.evaluate(() => { const x0 = __fd.Game.dropX; __fd.stepFrames(60, 0.3); return Math.round(x0 - __fd.Game.dropX); });
+  await p.keyboard.up("ArrowLeft");
+  if (p.errors.length) results.pageErrors = (results.pageErrors || []).concat(p.errors);
+  await p.closeAll();
+  // touch hand-back on a phone
+  const q = await open(browser, { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+  const tq = await q.evaluate(() => { __fd.Game.autoEnabled = true; __fd.stepFrames(60, 5.2); return __fd.Game.auto; });
+  const gbox = await q.locator("#game").boundingBox();
+  await q.touchscreen.tap(gbox.x + gbox.width * 0.6, gbox.y + gbox.height * 0.3);
+  const afterTap = await q.evaluate(() => ({ auto: __fd.Game.auto, idleMs: __fd.Game.idleMs }));
+  if (q.errors.length) results.pageErrors = (results.pageErrors || []).concat(q.errors);
+  await q.closeAll();
+  record("R5_auto_play", !run.autoAt4_9s && run.autoAt5_1s && run.badgeShown && run.autoDropsIn60s >= 20 &&
+    run.gapMinMs >= 1500 - 20 && run.gapMaxMs <= 2500 + 400 && run.xSpreadSd > 40 &&
+    !afterMouse.auto && afterMouse.idleMs === 0 && afterMouse.badgeHidden && !backToAuto.at4_9s && backToAuto.at5_1s &&
+    !afterKey.auto && afterKey.idleMs === 0 && keyMoves > 50 && tq === true && !afterTap.auto && afterTap.idleMs === 0,
+  { idleToAuto: run, mouseHandBack: afterMouse, autoAgainAfterIdle: backToAuto, keyHandBack: Object.assign(afterKey, { movedLeftU: keyMoves }), touchHandBack: { autoBeforeTap: tq, afterTap: afterTap } });
 }
 
 (async () => {
@@ -343,7 +549,7 @@ function record(id, ok, detail) {
   record("12_stack_30s", c12.every((r) => r.ok), c12);
 
   results.pageErrors = page.errors.slice();
-  await page.close();
+  await page.closeAll();
 
   // ---- 8. high-DPI rendering & 11. screen size independence
   const sizes = [
@@ -382,18 +588,29 @@ function record(id, ok, detail) {
     c8.push({ name: s.name, cssW: Math.round(info.cssW), pxW: info.pxW, dpr: info.dpr, pixelRatioMatches: info.pixelRatioMatches, fitsViewport: info.fitsViewport, pageScrolls: info.pageScrolls });
     c11.push({ name: s.name, fruits: info.fruits, resizeKeepsPhysics: unchanged, canvasResized: after.pxW !== info.pxW });
     if (p.errors.length) results.pageErrors = (results.pageErrors || []).concat(p.errors);
-    await p.close();
+    await p.closeAll();
   }
   record("8_high_dpi_crisp", c8.every((x) => x.pixelRatioMatches && x.fitsViewport && !x.pageScrolls), c8);
   const ref = JSON.stringify(c11[0].fruits);
   record("11_screen_size_independent", c11.every((x) => JSON.stringify(x.fruits) === ref && x.resizeKeepsPhysics && x.canvasResized),
     c11.map((x) => ({ name: x.name, sameTrajectoryAsDesktop: JSON.stringify(x.fruits) === ref, resizeKeepsPhysics: x.resizeKeepsPhysics })));
 
-  // ---- 9. rights: static scan for external assets (fonts, images, audio) besides Matter.js
+  // ---- v1.2 features: start screen, BGM, pause, AUTO PLAY
+  await checkStartScreen(browser);
+  await checkPause(browser);
+  await checkAutoPlay(browser);
+
+  // ---- 9 / R1. rights + offline single file: no external resources at all
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   const urls = (html.match(/https?:\/\/[^\s"')]+/g) || []);
+  const srcAttrs = (html.match(/\s(?:src|href)\s*=\s*["'][^"']*["']/gi) || []);
+  const netApis = (html.match(/\bfetch\s*\(|XMLHttpRequest|new\s+Audio\s*\(|new\s+WebSocket|importScripts|@import|url\(\s*["']?https?:/g) || []);
   const assets = (html.match(/\.(png|jpe?g|gif|webp|mp3|ogg|wav|woff2?|ttf)\b/gi) || []);
-  record("9_no_external_assets", urls.length === 1 && /matter-js\/0\.19\.0\/matter\.min\.js$/.test(urls[0]) && assets.length === 0, { urls: urls, assetRefs: assets });
+  const lib = fs.readFileSync(MATTER, "utf8").replace(/\n+$/, "");
+  const inlined = html.includes('<script id="matter-js-0.19.0">\n' + lib + "\n</script>");
+  record("9_R1_offline_single_file", inlined && srcAttrs.length === 0 && netApis.length === 0 && assets.length === 0 &&
+    urls.every((u) => u === "http://brm.io/matter-js/") && networkRequests.length === 0,
+  { matterInlinedVerbatim: inlined, srcOrHrefAttributes: srcAttrs, networkApis: netApis, assetRefs: assets, urlsInText: urls, runtimeNetworkRequests: networkRequests });
 
   results.pageErrors = results.pageErrors || [];
   record("no_page_errors", results.pageErrors.length === 0, results.pageErrors);
